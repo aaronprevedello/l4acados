@@ -178,7 +178,7 @@ def train_gp_model(
     train_y = gp_model.train_targets
 
     # Find optimal model hyperparameters
-    gp_model.train()
+    gp_model.train() # only sets the model in training mode
     likelihood.train()
 
     # Use the adam optimizer
