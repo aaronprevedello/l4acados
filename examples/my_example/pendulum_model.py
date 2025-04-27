@@ -33,6 +33,7 @@ from casadi import SX, vertcat, sin, cos, Function
 import casadi as ca
 import numpy as np
 from scipy.linalg import block_diag
+from casadi_gp_callback import GPDiscreteCallback
 
 
 def export_pendulum_ode_model() -> AcadosModel:   # inserted parameter l for my simulation
@@ -243,8 +244,8 @@ def export_ocp_cartpendulum_discrete(N, T, only_lower_bounds=False, **model_kwar
     ub_u = 50.0
 
     # cost weights
-    Q = np.diagflat([1.0, 10.0, 0.1, 0.1])  # [cart, theta, cart_vel, omega]
-    R = np.array([[1.0]])
+    Q = np.diagflat([10.0, 10.0, 0.1, 0.1])  # [cart, theta, cart_vel, omega]
+    R = np.array([[0.1]])                    # [u]
     Qe = 10 * Q  # terminal cost
 
     # load the discrete-time model
@@ -307,12 +308,13 @@ def export_ocp_cartpendulum_discrete(N, T, only_lower_bounds=False, **model_kwar
         # Do NOT set lh, uh, or con_h_expr if nh == 0
 
     # solver options
-    ocp.solver_options.integrator_type = "IRK"
-    ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"
+    ocp.solver_options.integrator_type = "ERK"
+    ocp.solver_options.qp_solver = "FULL_CONDENSING_HPIPM"  # ‘PARTIAL_CONDENSING_HPIPM’, ‘FULL_CONDENSING_QPOASES’, 
+    #‘FULL_CONDENSING_HPIPM’, ‘PARTIAL_CONDENSING_QPDUNES’, ‘PARTIAL_CONDENSING_OSQP’, ‘FULL_CONDENSING_DAQP’
     ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
     ocp.solver_options.nlp_solver_type = "SQP_RTI"
     ocp.solver_options.tf = T
-    ocp.solver_options.tol = 1e-5
+    ocp.solver_options.tol = 1e-2
 
     return ocp
 
@@ -335,4 +337,21 @@ def export_pendulum_ode_real_model_with_discrete_rk4(dT):
     model.disc_dyn_expr = xf
     # print("built RK4 for pendulum model with dT = ", dT)
     # print(xf)
+    return model
+
+def export_discrete_gp_blackbox_model(gp_model, nx, nu):
+    
+    x = SX.sym("x", nx)
+    u = SX.sym("u", nu)
+
+    gp_callback = GPDiscreteCallback(gp_model, nx, nu)
+
+    model = AcadosModel()
+    model.name = "gp_black_box"
+    model.x = x
+    model.u = u
+    model.dim_nx = nx
+    model.dim_nu = nu
+    model.model_type = "casadi_function"
+    model.disc_dyn_fun = gp_callback  # This is a CasADi external Callback
     return model

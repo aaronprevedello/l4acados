@@ -54,6 +54,8 @@ from pendulum_model import (
 )
 from utils import *
 
+from casadi_gp_callback import GPDiscreteCallback
+
 # gpytorch_utils
 from gpytorch_utils.gp_hyperparam_training import (
     generate_train_inputs_acados,
@@ -75,14 +77,15 @@ from l4acados.models.pytorch_models.gpytorch_models.gpytorch_residual_model impo
     GPyTorchResidualModel,
 )
 
-N_horizon = 80
-Tf = 1.0
-N_sim = 750   # numer of simulation steps
+N_horizon = 80  # number of steps in the horizon
+Tf = 2  # time horizon [s]
+N_sim = 350   # numer of simulation steps
 
 # Definition of AcadosOcpOptions 
 ocp_opts = AcadosOcpOptions()
 ocp_opts.tf = Tf
 ocp_opts.N_horizon = N_horizon 
+ocp_opts.qp_solver = "FULL_CONDENSING_HPIPM"
 
 
 nominal_model = export_pendulum_ode_model_with_discrete_rk4(0.025)
@@ -109,7 +112,7 @@ X_sim = [x0.copy()]
 U_sim = []
 X_gp = np.array([]) # composed by all the states and the input
 Y_gp = np.array([]) # difference between next predicted state and the next real state
-
+next_pred_state = [] # next predicted state
 
 # Simulate the system
 for i in range(N_sim):
@@ -119,10 +122,12 @@ for i in range(N_sim):
     ocp_solver.solve()
 
     u0 = ocp_solver.get(0, "u")
-    # print("u0 is ", u0.shape)
+    pred_state = ocp_solver.get(0, "x")
+    # print("pred_state is ", pred_state.shape)
     # print("U_sim is ", U_sim.shape)
     
     U_sim.append(u0)
+    next_pred_state.append(pred_state)
 
     # Simulation of the real model
     sim_solver.set("x", x_current)
@@ -139,15 +144,23 @@ for i in range(N_sim):
 # Convert lists to numpy arrays
 X_sim = np.array(X_sim)
 U_sim = np.array(U_sim)
+next_pred_state = np.array(next_pred_state)
 
-
-# Generate the GP data
+# GENERATE THE GP DATA
 # Input to GP
 U_sim_padded = np.vstack([U_sim, np.zeros((1, 1))])
 X_gp = np.hstack([X_sim, U_sim_padded])
-# Targets    
-Y_gp_v = X_gp[1:, 1] - X_gp[:-1, 1]
-Y_gp_w = X_gp[1:, 3] - X_gp[:-1, 3]
+
+# print("X_gp shape is ", X_gp.shape)
+# print("next_pred_state shape is ", next_pred_state.shape)
+
+# Targets 
+# Grey Box model: target is the difference between the next predicted state and the next real state   
+Y_gp_v = X_gp[1:, 1] - next_pred_state[:, 1]
+Y_gp_w = X_gp[1:, 3] - next_pred_state[:, 3]
+# Black Box model: target is the difference between the next and the actual state
+# Y_gp_v = X_gp[1:, 1] - X_gp[:-1, 1]
+# Y_gp_w = X_gp[1:, 3] - X_gp[:-1, 3]
 
 # Time vector
 time = np.linspace(0, Tf / N_horizon * N_sim, N_sim + 1)
@@ -186,7 +199,7 @@ gp_model = BatchIndependentMultitaskGPModel(
 
 # Train the GP model on the data   
 gp_model, likelihood = train_gp_model(
-    gp_model, training_iterations=1000)
+    gp_model, training_iterations=300)
 
 
 save_path = "gp_model.pth"
@@ -274,6 +287,8 @@ for i in range(N_sim):
     # Update current state
     X_sim_res.append(x_next.copy())
     x_current = x_next.copy()
+print("End of the simulation")
+
 
 # Convert lists to numpy arrays
 X_sim_res = np.array(X_sim_res)
