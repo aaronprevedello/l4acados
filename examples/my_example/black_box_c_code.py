@@ -1,8 +1,14 @@
-import sys, os, time
+import time
+import sys, os
 
 sys.path += ["../../external/"]
 
+# # + metadata={}
+# %load_ext autoreload
+# %autoreload 1
+# %aimport l4acados
 
+# # + metadata={}
 import numpy as np
 from scipy.stats import norm
 import casadi as cas
@@ -29,10 +35,13 @@ from pendulum_model import (
     export_pendulum_ode_model_with_discrete_rk4,
     export_pendulum_ode_real_model_with_discrete_rk4,
     export_ocp_cartpendulum_discrete,
+    export_discrete_gp_blackbox_model,
+    export_ocp_blackbox_discrete,
 )
 from utils import *
 
 from casadi_gp_callback import GPDiscreteCallback
+from export_gp_model import export_gpytorch_model_to_c
 
 # gpytorch_utils
 from gpytorch_utils.gp_hyperparam_training import (
@@ -57,8 +66,8 @@ from l4acados.models.pytorch_models.gpytorch_models.gpytorch_residual_model impo
 
 N_horizon = 80  # number of steps in the horizon
 Tf = 2  # time horizon [s]
-N_sim = 250   # numer of simulation steps
-Ts_st = Tf / N_horizon
+N_sim = 350   # numer of simulation steps
+dT = Tf / N_horizon
 
 # Definition of AcadosOcpOptions 
 ocp_opts = AcadosOcpOptions()
@@ -66,10 +75,10 @@ ocp_opts.tf = Tf
 ocp_opts.N_horizon = N_horizon 
 ocp_opts.qp_solver = "FULL_CONDENSING_HPIPM"
 
+# Define the nominal model for the first simulation
+nominal_model = export_pendulum_ode_model_with_discrete_rk4(dT)
 
-nominal_model = export_pendulum_ode_model_with_discrete_rk4(Ts_st, black_box=False)
-
-real_model = export_pendulum_ode_real_model_with_discrete_rk4(Ts_st)
+real_model = export_pendulum_ode_real_model_with_discrete_rk4(dT)
 
 ocp = export_ocp_cartpendulum_discrete(N_horizon, Tf, nominal_model)   
 ocp.model = nominal_model
@@ -123,7 +132,7 @@ for i in range(N_sim):
 # Convert lists to numpy arrays
 X_sim = np.array(X_sim)
 U_sim = np.array(U_sim)
-next_pred_state = np.array(next_pred_state)   # [p, theta, v, omega]
+next_pred_state = np.array(next_pred_state)
 
 # GENERATE THE GP DATA
 # Input to GP
@@ -135,10 +144,10 @@ X_gp = np.hstack([X_sim, U_sim_padded])
 
 # Targets 
 # Grey Box model: target is the difference between the next predicted state and the next real state   
-# Y_gp_v = X_gp[1:, 2] - next_pred_state[:, 2]
+# Y_gp_v = X_gp[1:, 1] - next_pred_state[:, 1]
 # Y_gp_w = X_gp[1:, 3] - next_pred_state[:, 3]
 # Black Box model: target is the difference between the next and the actual state
-Y_gp_v = X_gp[1:, 2] - X_gp[:-1, 2]
+Y_gp_v = X_gp[1:, 2] - X_gp[:-1, 2]    # [p, theta, v, omega]   
 Y_gp_w = X_gp[1:, 3] - X_gp[:-1, 3]
 
 # Time vector
@@ -162,28 +171,11 @@ plt.legend()
 plt.show()
 np.savez("rollout_data.npz", X_sim=X_sim, U_sim=U_sim)
 
-# Plot the difference between the predicted state and the real state
-plt.figure(figsize=(10, 6))
-plt.subplot(2, 1, 1)
-plt.plot(time_vec[:-1], next_pred_state[:,0 ]-X_sim[1:, 0], label='Predicted p - Real p')
-plt.plot(time_vec[:-1], next_pred_state[:,2]-X_sim[1:, 2], label='Predicted v - Real v')
-plt.xlabel('time (s)')
-plt.ylabel('speed (m/s) / position (m)')
-plt.legend()
-plt.grid()
-plt.subplot(2, 1, 2)
-plt.plot(time_vec[:-1], next_pred_state[:,1]-X_sim[1:, 1], label='Predicted theta - Real theta')
-plt.plot(time_vec[:-1], next_pred_state[:,3]-X_sim[1:, 3], label='Predicted omega - Real omega')
-plt.xlabel('time (s)')
-plt.ylabel('angle (rad) / angular speed (rad/s)')
-plt.legend()
-plt.grid()
-plt.show()
 
 # Define the GP model
 train_inputs = torch.tensor(X_gp[:-1, :], dtype=torch.float32)  
 train_outputs = torch.tensor(np.hstack([Y_gp_v.reshape(-1, 1), Y_gp_w.reshape(-1, 1)]), dtype=torch.float32)
-likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks = 2)
+likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(2)
 gp_model = BatchIndependentMultitaskGPModel(
     train_x = train_inputs,
     train_y = train_outputs,
@@ -194,8 +186,7 @@ gp_model = BatchIndependentMultitaskGPModel(
 
 # Train the GP model on the data   
 gp_model, likelihood = train_gp_model(
-    gp_model, training_iterations=500, learning_rate=0.05)
-
+    gp_model, training_iterations=300)
 
 save_path = "gp_model.pth"
 # Save state dicts and training data (optional if not used later)
@@ -213,33 +204,22 @@ likelihood.load_state_dict(checkpoint['likelihood_state_dict'])
 gp_model.eval()
 likelihood.eval()
 
-# Define residual model
-res_model = GPyTorchResidualModel(gp_model)
-
-# Define mapping from gp outputs (dim=2) to model states (dim=4)
-B_m = np.array([
-    [Ts_st / 2, 0],
-    [0, Ts_st / 2],
-    [1.0, 0],
-    [0, 1.0],
-])
-
-# New simulation using the residual model
-nominal_model = export_pendulum_ode_model_with_discrete_rk4(Ts_st, black_box=True)
-
-real_model = export_pendulum_ode_real_model_with_discrete_rk4(Ts_st)
-
-ocp = export_ocp_cartpendulum_discrete(N_horizon, Tf, nominal_model)   
-# ocp.model = nominal_model
-ocp.solver_options.nlp_solver_tol_eq = 1e-2
-ocp_solver = AcadosOcpSolver(ocp, json_file="acados_ocp.json")
-
-# Define l4acados solver
-l4acados_solver = ResidualLearningMPC(
-    ocp=ocp,
-    residual_model=res_model,
-    B = B_m
+train_x, alpha, lengthscales, outputscales = extract_model_params(gp_model)
+export_gp_to_c(
+    train_x, alpha, lengthscales, outputscales, file_path="gp_dynamics.c"
 )
+
+# New simulation using the black box model
+# Load the GP model
+nominal_gp_model = export_discrete_gp_blackbox_model(gp_model, nx = 4, nu = 1)
+
+real_model = export_pendulum_ode_real_model_with_discrete_rk4(dT)
+
+ocp_gp_bb = export_ocp_blackbox_discrete(nominal_gp_model, N_horizon, Tf)   
+ocp_gp_bb.solver_options = ocp_opts
+ocp_gp_bb.solver_options.nlp_solver_tol_eq = 1e-2
+ocp_gp_bb.model.dyn_type = "discrete"    # because your GP predicts x_next directly
+ocp_solver = AcadosOcpSolver(ocp_gp_bb, json_file="acados_ocp_bb.json")
 
 sim = AcadosSim()
 sim.model = real_model
@@ -261,11 +241,11 @@ Y_gp = np.array([]) # difference between next predicted state and the next real 
 for i in range(N_sim):
     # Computation of the optimal control input with nominal model + residual model
     print("Second simulation iteration ", i)
-    l4acados_solver.set(0, "lbx", x_current)
-    l4acados_solver.set(0, "ubx", x_current)
-    l4acados_solver.solve()
+    ocp_solver.set(0, "lbx", x_current)
+    ocp_solver.set(0, "ubx", x_current)
+    ocp_solver.solve()
 
-    u0 = l4acados_solver.get(0, "u")
+    u0 = ocp_solver.get(0, "u")
     # print("u0 is ", u0.shape)
     # print("U_sim is ", U_sim.shape)
     
@@ -282,22 +262,12 @@ for i in range(N_sim):
     # Update current state
     X_sim_res.append(x_next.copy())
     x_current = x_next.copy()
-
 print("End of the simulation")
 
 
 # Convert lists to numpy arrays
 X_sim_res = np.array(X_sim_res)
 U_sim_res = np.array(U_sim_res)
-
-
-# Generate the GP data
-# Input to GP
-#U_sim_padded = np.vstack([U_sim_res, np.zeros((1, 1))])
-#X_gp = np.hstack([X_sim, U_sim_padded])
-# Targets    
-#Y_gp_v = X_gp[1:, 1] - X_gp[:-1, 1]
-#Y_gp_w = X_gp[1:, 3] - X_gp[:-1, 3]
 
 # Time vector
 time_vec = np.linspace(0, Tf / N_horizon * N_sim, N_sim + 1)
@@ -328,11 +298,3 @@ plt.grid()
 plt.show()
 
 np.savez("rollout_data_res_ctrl.npz", X_sim_res=X_sim_res, U_sim_res=U_sim_res)
-
-
-plot_gp_fit_on_training_data(
-    train_inputs,
-    train_outputs,
-    gp_model,
-    likelihood,
-)

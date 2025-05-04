@@ -12,7 +12,8 @@ class GPDiscreteCallback(Callback):
         self.output_dim = nx  # assuming full next state prediction
 
         # Always call super AFTER setting attributes
-        super().__init__(name)
+        Callback.__init__(self)
+        self.construct(name)
     
     def get_n_in(self): 
         return 2  # Inputs: [x, u]

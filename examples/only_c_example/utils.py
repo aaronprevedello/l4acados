@@ -209,12 +209,14 @@ def export_gp_to_c(train_x, alpha, lengthscales, outputscales, file_path="gp_dyn
 
         # Lengthscales
         f.write(f'    const real_t lengthscale[{P}][{D}] = {{\n')
+
         for p in range(P):
             f.write("        {" + ", ".join(f"{v:.8f}" for v in lengthscales[p, 0]) + "},\n")
         f.write("    };\n")
 
         # Outputscale
         f.write(f'    const real_t outputscale[{P}] = {{{", ".join(f"{v:.8f}" for v in outputscales)}}};\n\n')
+
 
         # Start prediction loop
         f.write('    for (int p = 0; p < {0}; p++) {{\n'.format(P))
@@ -231,53 +233,3 @@ def export_gp_to_c(train_x, alpha, lengthscales, outputscales, file_path="gp_dyn
         f.write('    }\n')
 
         f.write('    return 0;\n}\n')
-
-import matplotlib.pyplot as plt
-import numpy as np
-import torch
-import gpytorch
-
-def plot_gp_fit_on_training_data(train_inputs, train_outputs, gp_model, likelihood, task_names=None):
-    """
-    Plots the GP mean and 95% confidence interval on training data.
-    
-    Parameters:
-    - train_inputs: torch.Tensor of shape (N, D)
-    - train_outputs: torch.Tensor of shape (N, T)
-    - gp_model: Trained GPyTorch model
-    - likelihood: GPyTorch likelihood
-    - task_names: Optional list of names for each output dimension (length T)
-    """
-    gp_model.eval()
-    likelihood.eval()
-
-    with torch.no_grad(), gpytorch.settings.fast_pred_var():
-        pred = likelihood(gp_model(train_inputs))
-    
-    mean = pred.mean.cpu()
-    lower, upper = pred.confidence_region()
-
-    num_tasks = mean.shape[1]
-    x_axis = np.arange(train_inputs.shape[0])
-    
-    if task_names is None:
-        task_names = [f'Task {i}' for i in range(num_tasks)]
-
-    for i in range(num_tasks):
-        plt.figure(figsize=(10, 4))
-        plt.plot(x_axis, train_outputs[:, i].cpu(), 'k*', label='Training targets')
-        plt.plot(x_axis, mean[:, i], 'b', label='GP mean')
-        plt.fill_between(
-            x_axis,
-            lower[:, i],
-            upper[:, i],
-            alpha=0.3,
-            label='95% confidence interval'
-        )
-        plt.title(f'GP fit on training data - {task_names[i]}')
-        plt.xlabel('Training sample index')
-        plt.ylabel('Output')
-        plt.legend()
-        plt.grid(True)
-        plt.tight_layout()
-        plt.show()
