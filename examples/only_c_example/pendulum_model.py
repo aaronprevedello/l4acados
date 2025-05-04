@@ -33,16 +33,12 @@ from casadi import SX, vertcat, sin, cos, Function
 import casadi as ca
 import numpy as np
 from scipy.linalg import block_diag
-from casadi_gp_callback import GPDiscreteCallback
 
 
-def export_pendulum_ode_model(black_box = False) -> AcadosModel:   # inserted parameter l for my simulation
+def export_pendulum_ode_model() -> AcadosModel:   # inserted parameter l for my simulation
 
     model_name = 'pendulum'
-    if black_box:
-        ode_flag = 0
-    else:
-        ode_flag = 1
+
     # constants
     m_cart = 1. # mass of the cart [kg]
     m = 0.1 # mass of the ball [kg]
@@ -66,7 +62,7 @@ def export_pendulum_ode_model(black_box = False) -> AcadosModel:   # inserted pa
     v1_dot      = SX.sym('v1_dot')
     dtheta_dot  = SX.sym('dtheta_dot')
 
-    xdot = vertcat(x1_dot, theta_dot, ode_flag*v1_dot, ode_flag*dtheta_dot)
+    xdot = vertcat(x1_dot, theta_dot, v1_dot, dtheta_dot)
 
     # parameters
     p = []
@@ -77,8 +73,8 @@ def export_pendulum_ode_model(black_box = False) -> AcadosModel:   # inserted pa
     denominator = m_cart + m - m*cos_theta*cos_theta
     f_expl = vertcat(v1,
                      dtheta,
-                     ode_flag*(-m*l*sin_theta*dtheta*dtheta + m*g*cos_theta*sin_theta+F)/denominator,
-                     ode_flag*(-m*l*cos_theta*sin_theta*dtheta*dtheta + F*cos_theta+(m_cart+m)*g*sin_theta)/(l*denominator)
+                     (-m*l*sin_theta*dtheta*dtheta + m*g*cos_theta*sin_theta+F)/denominator,
+                     (-m*l*cos_theta*sin_theta*dtheta*dtheta + F*cos_theta+(m_cart+m)*g*sin_theta)/(l*denominator)
                      )
 
     f_impl = xdot - f_expl
@@ -115,9 +111,9 @@ def export_linearized_pendulum(xbar, ubar):
     return model
 
 
-def export_pendulum_ode_model_with_discrete_rk4(dT, black_box = False) -> AcadosModel:
+def export_pendulum_ode_model_with_discrete_rk4(dT):
 
-    model = export_pendulum_ode_model(black_box)
+    model = export_pendulum_ode_model()
 
     x = model.x
     u = model.u
@@ -342,156 +338,160 @@ def export_pendulum_ode_real_model_with_discrete_rk4(dT):
     # print(xf)
     return model
 
-#def export_discrete_gp_blackbox_model(gp_model, nx, nu):
-#    
-#    x = SX.sym("x", nx)
-#    u = SX.sym("u", nu)
-#
-#    gp_callback = GPDiscreteCallback(gp_model, nx, nu)
-#
-#    model = AcadosModel()
-#    model.name = "gp_black_box"
-#    model.x = x
-#    model.u = u
-#    model.dim_nx = nx
-#    model.dim_nu = nu
-#    model.dyn_ext_fun = gp_callback
-#    model.model_type = "external"
-#    model.dyn_type = "discrete"
-#
-#    # VERY IMPORTANT: disable continuous dynamics
-#    model.f_expl_expr = None
-#    model.f_impl_expr = None
-#
-#    model.cost_y_expr = vertcat(model.x, model.u)
-#    model.cost_y_expr_e = model.x
-#    model.cost_y_expr_0 = model.cost_y_expr
-#
-#    return model
+def export_discrete_gp_blackbox_model(gp_model, nx, nu):
+    
+    x = SX.sym("x", nx)
+    u = SX.sym("u", nu)
 
-#def export_ocp_blackbox_discrete(gp_model, N, T, x0=None, only_lower_bounds=False):
-#    """
-#    Create an Acados OCP using a black-box discrete CasADi model (like a GP model).
-#    
-#    Inputs:
-#        - gp_model: your trained GPyTorch GP model
-#        - N: number of shooting intervals
-#        - T: time horizon [s]
-#        - x0: initial condition (default [0, pi, 0, 0])
-#        - only_lower_bounds: if True, set only lower bounds on h (if present)
-#        
-#    Returns:
-#        - AcadosOcp object
-#    """
-#    
-#    from casadi_gp_callback import GPDiscreteCallback  # Assuming your Callback is in this file!
-#
-#    # system dimensions
-#    nx = 4  # adjust if different
-#    nu = 1  # adjust if different
-#
-#    # initial condition
-#    if x0 is None:
-#        x0 = np.array([0.0, np.pi, 0.0, 0.0])  # cart-pendulum upright
-#
-#    # input bounds
-#    lb_u = -50.0
-#    ub_u = 50.0
-#
-#    # cost weights
-#    Q = np.diagflat([10.0, 10.0, 0.1, 0.1])  # [cart, theta, cart_vel, omega]
-#    R = np.array([[0.1]])                    # [u]
-#    Qe = np.diagflat([10.0, 10.0, 0.1, 0.1])  # terminal cost
-#
-#    # create black-box model
-#    model = AcadosModel()
-#    model.name = "cartpole_gp"
-#    model.x = SX.sym('x', nx)
-#    model.u = SX.sym('u', nu)
-#    model.xdot = SX.sym('xdot', nx)
-#    # model.p = SX.sym('p', 0)  # no parameters
-#    # model.z = SX.sym('z', 0)  # no algebraic variables
-#
-#    # Dummy continuous dynamics (returns zero)
-#    zero_rhs = ca.SX.zeros(nx)
-#    model.f_impl_expr = zero_rhs
-#    model.f_expl_expr = zero_rhs
-#    
-#    model.dyn_expr_f = ca.Function("f_expl", [model.x, model.u], [zero_rhs])
-#    model.dyn_expr_f_impl = ca.Function("f_impl", [model.x, model.u, model.xdot], [zero_rhs])
-#
-#
-#    # set the Callback
-#    gp_callback = GPDiscreteCallback(gp_model, nx=nx, nu=nu)
-#    model.disc_dyn_ext_fun_type = 'generic'
-#    # model.disc_dyn_ext_fun = AcadosExternalFunction()
-#    model.dyn_type = "discrete"
-#    
-#    # define ocp
-#    ocp = AcadosOcp()
-#    ocp.model = model
-#    ocp.model.dyn_type = "discrete"
-#    ocp.solver_options.integrator_type = "DISCRETE"
-#    ocp.dims.N = N
-#    ocp.dims.nx = nx
-#    ocp.dims.nu = nu
-#    ocp.dims.np = 0
-#    ocp.dims.nz = 0
-#
-#    # Cost
-#    ny = nx + nu
-#    ny_e = nx
-#
-#    ocp.cost.cost_type = "NONLINEAR_LS"
-#    ocp.cost.cost_type_e = "NONLINEAR_LS"
-#
-#    # Weights
-#    ocp.cost.W = np.eye(ny)
-#    ocp.cost.W_e = np.eye(ny_e)
-#    ocp.cost.W_0 = np.eye(ny)  # <-- needed for stage 0
-#
-#    # References
-#    ocp.cost.yref = np.zeros((ny,))
-#    ocp.cost.yref_e = np.zeros((ny_e,))
-#    ocp.cost.yref_0 = np.zeros((ny,))  # <-- needed for stage 0
-#
-#
-#    # Dimensions
-#    ocp.dims.ny = ny
-#    ocp.dims.ny_e = ny_e
-#    ocp.dims.ny_0 = ny  # <-- needed for stage 0
-#
-#    # ocp.cost.W = block_diag(Q, R)
-#    # ocp.cost.W_0 = ocp.cost.W
-#    # ocp.cost.W_e = Qe
-#
-#    # ocp.cost.Vx = np.zeros((ny, nx))
-#    # ocp.cost.Vx[:nx, :nx] = np.eye(nx)
-#
-#    # ocp.cost.Vu = np.zeros((ny, nu))
-#    # ocp.cost.Vu[nx:, :] = np.eye(nu)
-#
-#    # ocp.cost.Vx_e = np.eye(ny_e)
-#    # ocp.cost.yref = np.zeros((ny,))
-#    # ocp.cost.yref_e = np.zeros((ny_e,))
-#
-#    # Constraints
-#    ocp.constraints.constr_type = "BGH"
-#    ocp.constraints.lbu = np.array([lb_u])
-#    ocp.constraints.ubu = np.array([ub_u])
-#    ocp.constraints.idxbu = np.array(range(nu))
-#    ocp.constraints.x0 = x0
-#
-#    # No nonlinear constraints (h(x,u)) in this example
-#    ocp.dims.nh = 0
-#
-#    # Solver options
-#    ocp.solver_options.integrator_type = "DISCRETE"
-#    ocp.solver_options.qp_solver = "FULL_CONDENSING_HPIPM"
-#    ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
-#    ocp.solver_options.nlp_solver_type = "SQP_RTI"
-#    ocp.solver_options.tf = T
-#    ocp.solver_options.tol = 1e-2
-#
-#    return ocp
-#
+    gp_callback = GPDiscreteCallback(gp_model, nx, nu)
+
+    model = AcadosModel()
+    model.name = "gp_black_box"
+    model.x = x
+    model.u = u
+    model.dim_nx = nx
+    model.dim_nu = nu
+    model.dyn_ext_fun = gp_callback
+    model.model_type = "external"
+    model.dyn_type = "discrete"
+
+    # VERY IMPORTANT: disable continuous dynamics
+    model.f_expl_expr = None
+    model.f_impl_expr = None
+
+    model.cost_y_expr = vertcat(model.x, model.u)
+    model.cost_y_expr_e = model.x
+    model.cost_y_expr_0 = model.cost_y_expr
+
+    return model
+
+from casadi import SX
+import numpy as np
+from scipy.linalg import block_diag
+from acados_template import AcadosOcp, AcadosModel
+
+# def export_ocp_blackbox_discrete(gp_model, N, T, x0=None, only_lower_bounds=False):
+#     """
+#     Create an Acados OCP using a black-box discrete CasADi model (like a GP model).
+#     
+#     Inputs:
+#         - gp_model: your trained GPyTorch GP model
+#         - N: number of shooting intervals
+#         - T: time horizon [s]
+#         - x0: initial condition (default [0, pi, 0, 0])
+#         - only_lower_bounds: if True, set only lower bounds on h (if present)
+#         
+#     Returns:
+#         - AcadosOcp object
+#     """
+#     
+#     from casadi_gp_callback import GPDiscreteCallback  # Assuming your Callback is in this file!
+# 
+#     # system dimensions
+#     nx = 4  # adjust if different
+#     nu = 1  # adjust if different
+# 
+#     # initial condition
+#     if x0 is None:
+#         x0 = np.array([0.0, np.pi, 0.0, 0.0])  # cart-pendulum upright
+# 
+#     # input bounds
+#     lb_u = -50.0
+#     ub_u = 50.0
+# 
+#     # cost weights
+#     Q = np.diagflat([10.0, 10.0, 0.1, 0.1])  # [cart, theta, cart_vel, omega]
+#     R = np.array([[0.1]])                    # [u]
+#     Qe = np.diagflat([10.0, 10.0, 0.1, 0.1])  # terminal cost
+# 
+#     # create black-box model
+#     model = AcadosModel()
+#     model.name = "cartpole_gp"
+#     model.x = SX.sym('x', nx)
+#     model.u = SX.sym('u', nu)
+#     model.xdot = SX.sym('xdot', nx)
+#     # model.p = SX.sym('p', 0)  # no parameters
+#     # model.z = SX.sym('z', 0)  # no algebraic variables
+# 
+#     # Dummy continuous dynamics (returns zero)
+#     zero_rhs = ca.SX.zeros(nx)
+#     model.f_impl_expr = zero_rhs
+#     model.f_expl_expr = zero_rhs
+#     
+#     model.dyn_expr_f = ca.Function("f_expl", [model.x, model.u], [zero_rhs])
+#     model.dyn_expr_f_impl = ca.Function("f_impl", [model.x, model.u, model.xdot], [zero_rhs])
+# 
+# 
+#     # set the Callback
+#     gp_callback = GPDiscreteCallback(gp_model, nx=nx, nu=nu)
+#     model.disc_dyn_ext_fun_type = 'generic'
+#     # model.disc_dyn_ext_fun = AcadosExternalFunction()
+#     model.dyn_type = "discrete"
+#     
+#     # define ocp
+#     ocp = AcadosOcp()
+#     ocp.model = model
+#     ocp.model.dyn_type = "discrete"
+#     ocp.solver_options.integrator_type = "DISCRETE"
+#     ocp.dims.N = N
+#     ocp.dims.nx = nx
+#     ocp.dims.nu = nu
+#     ocp.dims.np = 0
+#     ocp.dims.nz = 0
+# 
+#     # Cost
+#     ny = nx + nu
+#     ny_e = nx
+# 
+#     ocp.cost.cost_type = "NONLINEAR_LS"
+#     ocp.cost.cost_type_e = "NONLINEAR_LS"
+# 
+#     # Weights
+#     ocp.cost.W = np.eye(ny)
+#     ocp.cost.W_e = np.eye(ny_e)
+#     ocp.cost.W_0 = np.eye(ny)  # <-- needed for stage 0
+# 
+#     # References
+#     ocp.cost.yref = np.zeros((ny,))
+#     ocp.cost.yref_e = np.zeros((ny_e,))
+#     ocp.cost.yref_0 = np.zeros((ny,))  # <-- needed for stage 0
+# 
+# 
+#     # Dimensions
+#     ocp.dims.ny = ny
+#     ocp.dims.ny_e = ny_e
+#     ocp.dims.ny_0 = ny  # <-- needed for stage 0
+# 
+#     # ocp.cost.W = block_diag(Q, R)
+#     # ocp.cost.W_0 = ocp.cost.W
+#     # ocp.cost.W_e = Qe
+# 
+#     # ocp.cost.Vx = np.zeros((ny, nx))
+#     # ocp.cost.Vx[:nx, :nx] = np.eye(nx)
+# 
+#     # ocp.cost.Vu = np.zeros((ny, nu))
+#     # ocp.cost.Vu[nx:, :] = np.eye(nu)
+# 
+#     # ocp.cost.Vx_e = np.eye(ny_e)
+#     # ocp.cost.yref = np.zeros((ny,))
+#     # ocp.cost.yref_e = np.zeros((ny_e,))
+# 
+#     # Constraints
+#     ocp.constraints.constr_type = "BGH"
+#     ocp.constraints.lbu = np.array([lb_u])
+#     ocp.constraints.ubu = np.array([ub_u])
+#     ocp.constraints.idxbu = np.array(range(nu))
+#     ocp.constraints.x0 = x0
+# 
+#     # No nonlinear constraints (h(x,u)) in this example
+#     ocp.dims.nh = 0
+# 
+#     # Solver options
+#     ocp.solver_options.integrator_type = "DISCRETE"
+#     ocp.solver_options.qp_solver = "FULL_CONDENSING_HPIPM"
+#     ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
+#     ocp.solver_options.nlp_solver_type = "SQP_RTI"
+#     ocp.solver_options.tf = T
+#     ocp.solver_options.tol = 1e-2
+# 
+#     return ocp
