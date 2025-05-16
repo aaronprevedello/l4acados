@@ -32,15 +32,19 @@ from acados_template import AcadosModel
 from casadi import SX, vertcat, sin, cos, Function
 import casadi as ca
 
-def export_pendulum_ode_model() -> AcadosModel:
+from casadi import SX, vertcat, sin, cos
+from acados_template import AcadosModel
 
+def export_pendulum_ode_model() -> AcadosModel:
     model_name = 'pendulum'
 
     # constants
-    m_cart = 1. # mass of the cart [kg]
-    m = 0.1 # mass of the ball [kg]
-    g = 9.81 # gravity constant [m/s^2]
-    l = 0.8 # length of the rod [m]
+    m_cart = 1.0   # mass of the cart [kg]
+    m = 0.1        # mass of the ball [kg]
+    g = 9.81       # gravity constant [m/s^2]
+
+    # pendulum length as parameter
+    l_param = SX.sym('l')  # symbolic parameter
 
     # set up states & controls
     x1      = SX.sym('x1')
@@ -54,45 +58,46 @@ def export_pendulum_ode_model() -> AcadosModel:
     u = vertcat(F)
 
     # xdot
-    x1_dot      = SX.sym('x1_dot')
-    theta_dot   = SX.sym('theta_dot')
-    v1_dot      = SX.sym('v1_dot')
-    dtheta_dot  = SX.sym('dtheta_dot')
+    x1_dot     = SX.sym('x1_dot')
+    theta_dot  = SX.sym('theta_dot')
+    v1_dot     = SX.sym('v1_dot')
+    dtheta_dot = SX.sym('dtheta_dot')
 
     xdot = vertcat(x1_dot, theta_dot, v1_dot, dtheta_dot)
 
-    # parameters
-    p = []
+    # parameters vector (only l for now)
+    p = vertcat(l_param)
 
     # dynamics
     cos_theta = cos(theta)
     sin_theta = sin(theta)
-    denominator = m_cart + m - m*cos_theta*cos_theta
-    f_expl = vertcat(v1,
-                     dtheta,
-                     (-m*l*sin_theta*dtheta*dtheta + m*g*cos_theta*sin_theta+F)/denominator,
-                     (-m*l*cos_theta*sin_theta*dtheta*dtheta + F*cos_theta+(m_cart+m)*g*sin_theta)/(l*denominator)
-                     )
+    denominator = m_cart + m - m * cos_theta**2
+
+    f_expl = vertcat(
+        v1,
+        dtheta,
+        (-m * l_param * sin_theta * dtheta**2 + m * g * cos_theta * sin_theta + F) / denominator,
+        (-m * l_param * cos_theta * sin_theta * dtheta**2 + F * cos_theta + (m_cart + m) * g * sin_theta) / (l_param * denominator)
+    )
 
     f_impl = xdot - f_expl
 
     model = AcadosModel()
-
     model.f_impl_expr = f_impl
     model.f_expl_expr = f_expl
     model.x = x
     model.xdot = xdot
     model.u = u
-    # model.z = z
     model.p = p
     model.name = model_name
 
-    # store meta information
-    model.x_labels = ['$x$ [m]', r'$\theta$ [rad]', '$v$ [m]', r'$\dot{\theta}$ [rad/s]']
+    # Meta info
+    model.x_labels = ['$x$ [m]', r'$\theta$ [rad]', '$v$ [m/s]', r'$\dot{\theta}$ [rad/s]']
     model.u_labels = ['$F$']
     model.t_label = '$t$ [s]'
 
     return model
+
 
 
 def export_linearized_pendulum(xbar, ubar):
