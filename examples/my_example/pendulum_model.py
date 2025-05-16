@@ -342,6 +342,224 @@ def export_pendulum_ode_real_model_with_discrete_rk4(dT):
     # print(xf)
     return model
 
+def export_augmented_pendulum_ode_model(dt, black_box=False) -> AcadosModel:
+    """
+    Returns an augmented pendulum ODE model with memory of 2 previous time steps.
+    
+    Args:
+        dt (float): Time step for discretization.
+        black_box (bool): If True, disables ODE dynamics (used for learning-based models).
+    
+    Returns:
+        AcadosModel: Configured model for use with acados.
+    """
+
+    model_name = 'augmented_pendulum'
+    ode_flag = 0 if black_box else 1
+
+    # Constants
+    m_cart = 1.0
+    m = 0.1
+    g = 9.81
+    l = 0.8
+
+    # Current state
+    x1 = SX.sym('x')
+    x2 = SX.sym('theta')
+    x3 = SX.sym('v')
+    x4 = SX.sym('omega')
+
+    # Previous states
+    x1_p1 = SX.sym('x_p1')
+    x2_p1 = SX.sym('theta_p1')
+    x3_p1 = SX.sym('v_p1')
+    x4_p1 = SX.sym('omega_p1')
+
+    x1_p2 = SX.sym('x_p2')
+    x2_p2 = SX.sym('theta_p2')
+    x3_p2 = SX.sym('v_p2')
+    x4_p2 = SX.sym('omega_p2')
+
+    # Input
+    F = SX.sym('F')
+    u = vertcat(F)
+
+    # Compose full state vector
+    x_curr = vertcat(x1, x2, x3, x4)
+    x_prev1 = vertcat(x1_p1, x2_p1, x3_p1, x4_p1)
+    x_prev2 = vertcat(x1_p2, x2_p2, x3_p2, x4_p2)
+    x_full = vertcat(x_curr, x_prev1, x_prev2)
+
+    # xdot
+    x1_dot     = SX.sym('x1_dot')
+    theta_dot  = SX.sym('theta_dot')
+    v1_dot     = SX.sym('v1_dot')
+    dtheta_dot = SX.sym('dtheta_dot')
+    xdot = vertcat(x1_dot, theta_dot, ode_flag*v1_dot, ode_flag*dtheta_dot)
+
+    # No parameters
+    p = []
+
+    # Explicit dynamics
+    cos_theta = cos(x2)
+    sin_theta = sin(x2)
+    denominator = m_cart + m - m * cos_theta**2
+    f_expl = vertcat(
+        x3,
+        x4,
+        ode_flag * (-m * l * sin_theta * x4**2 + m * g * cos_theta * sin_theta + F) / denominator,
+        ode_flag * (-m * l * cos_theta * sin_theta * x4**2 + F * cos_theta + (m_cart + m) * g * sin_theta) / (l * denominator)
+    )
+
+    # Implicit dynamics
+    f_impl = xdot - f_expl
+
+    # Discretized Euler dynamics
+    x_next = x_curr + dt * f_expl
+    x_next_full = vertcat(x_next, x_curr, x_prev1)
+
+    # Build acados model
+    model = AcadosModel()
+    model.f_impl_expr = f_impl
+    model.f_expl_expr = f_expl
+    model.x = x_full
+    model.xdot = xdot
+    model.u = u
+    model.p = p
+    model.name = model_name
+    model.disc_dyn_expr = x_next_full
+
+    # Meta
+    model.x_labels = ['$x$ [m]', r'$\theta$ [rad]', '$v$ [m/s]', r'$\dot{\theta}$ [rad/s]']
+    model.u_labels = ['$F$']
+    model.t_label = '$t$ [s]'
+
+    return model
+
+def export_augmented_pendulum_model_with_rk4(dt, black_box=False):
+
+    model = export_augmented_pendulum_ode_model(dt, black_box)
+
+    # Extract state vectors
+    x_full = model.x        # full state: [x_k, x_{k-1}, x_{k-2}]
+    u = model.u
+
+    # Split current, past1, past2 from x_full
+    x_curr = x_full[0:4]    # x_k
+    x_prev1 = x_full[4:8]   # x_{k-1}
+    x_prev2 = x_full[8:12]  # x_{k-2}
+
+    # Build explicit ODE function using current state and input
+    ode = Function('ode_aug', [x_curr, u], [model.f_expl_expr])
+
+    # --- RK4 integration on current state ---
+    k1 = ode(x_curr,           u)
+    k2 = ode(x_curr + dt/2*k1, u)
+    k3 = ode(x_curr + dt/2*k2, u)
+    k4 = ode(x_curr + dt*k3,   u)
+    x_next = x_curr + dt/6 * (k1 + 2*k2 + 2*k3 + k4)
+
+    # Construct next full state: shift history
+    x_next_full = vertcat(x_next, x_curr, x_prev1)
+
+    # Assign to model
+    model.disc_dyn_expr = x_next_full
+
+    return model
+
+def export_augmented_pendulum_ode_real_model(dt, black_box=False) -> AcadosModel:
+    """
+    Returns an augmented pendulum ODE model with memory of 2 previous time steps.
+    
+    Args:
+        dt (float): Time step for discretization.
+        black_box (bool): If True, disables ODE dynamics (used for learning-based models).
+    
+    Returns:
+        AcadosModel: Configured model for use with acados.
+    """
+
+    model_name = 'augmented_pendulum'
+    ode_flag = 0 if black_box else 1
+
+    # Constants
+    m_cart = 1.0
+    m = 0.1
+    g = 9.81
+    l = 0.5
+
+    # Current state
+    x1 = SX.sym('x')
+    x2 = SX.sym('theta')
+    x3 = SX.sym('v')
+    x4 = SX.sym('omega')
+
+    # Previous states
+    x1_p1 = SX.sym('x_p1')
+    x2_p1 = SX.sym('theta_p1')
+    x3_p1 = SX.sym('v_p1')
+    x4_p1 = SX.sym('omega_p1')
+
+    x1_p2 = SX.sym('x_p2')
+    x2_p2 = SX.sym('theta_p2')
+    x3_p2 = SX.sym('v_p2')
+    x4_p2 = SX.sym('omega_p2')
+
+    # Input
+    F = SX.sym('F')
+    u = vertcat(F)
+
+    # Compose full state vector
+    x_curr = vertcat(x1, x2, x3, x4)
+    x_prev1 = vertcat(x1_p1, x2_p1, x3_p1, x4_p1)
+    x_prev2 = vertcat(x1_p2, x2_p2, x3_p2, x4_p2)
+    x_full = vertcat(x_curr, x_prev1, x_prev2)
+
+    # xdot
+    x1_dot     = SX.sym('x1_dot')
+    theta_dot  = SX.sym('theta_dot')
+    v1_dot     = SX.sym('v1_dot')
+    dtheta_dot = SX.sym('dtheta_dot')
+    xdot = vertcat(x1_dot, theta_dot, ode_flag*v1_dot, ode_flag*dtheta_dot)
+
+    # No parameters
+    p = []
+
+    # Explicit dynamics
+    cos_theta = cos(x2)
+    sin_theta = sin(x2)
+    denominator = m_cart + m - m * cos_theta**2
+    f_expl = vertcat(
+        x3,
+        x4,
+        ode_flag * (-m * l * sin_theta * x4**2 + m * g * cos_theta * sin_theta + F) / denominator,
+        ode_flag * (-m * l * cos_theta * sin_theta * x4**2 + F * cos_theta + (m_cart + m) * g * sin_theta) / (l * denominator)
+    )
+
+    # Implicit dynamics
+    f_impl = xdot - f_expl
+
+    # Discretized Euler dynamics
+    x_next = x_curr + dt * f_expl
+    x_next_full = vertcat(x_next, x_curr, x_prev1)
+
+    # Build acados model
+    model = AcadosModel()
+    model.f_impl_expr = f_impl
+    model.f_expl_expr = f_expl
+    model.x = x_full
+    model.xdot = xdot
+    model.u = u
+    model.p = p
+    model.name = model_name
+    model.disc_dyn_expr = x_next_full
+
+    # Meta
+    model.x_labels = ['$x$ [m]', r'$\theta$ [rad]', '$v$ [m/s]', r'$\dot{\theta}$ [rad/s]']
+    model.u_labels = ['$F$']
+    model.t_label = '$t$ [s]'
+
+    return model
 #def export_discrete_gp_blackbox_model(gp_model, nx, nu):
 #    
 #    x = SX.sym("x", nx)

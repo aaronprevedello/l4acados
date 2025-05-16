@@ -3,7 +3,7 @@ from numpy import linalg as npla
 from dataclasses import dataclass
 import matplotlib.pyplot as plt
 from pendulum_model import export_pendulum_ode_model_with_discrete_rk4
-import torch
+import torch, gpytorch
 
 # Plotting
 
@@ -232,11 +232,6 @@ def export_gp_to_c(train_x, alpha, lengthscales, outputscales, file_path="gp_dyn
 
         f.write('    return 0;\n}\n')
 
-import matplotlib.pyplot as plt
-import numpy as np
-import torch
-import gpytorch
-
 def plot_gp_fit_on_training_data(train_inputs, train_outputs, gp_model, likelihood, task_names=None):
     """
     Plots the GP mean and 95% confidence interval on training data.
@@ -281,3 +276,85 @@ def plot_gp_fit_on_training_data(train_inputs, train_outputs, gp_model, likeliho
         plt.grid(True)
         plt.tight_layout()
         plt.show()
+
+def vertical_points_ref(Ts, N_points, pred_hor):
+    #time_ref = np.linspace(0, Ts, N_points+pred_hor)
+    time_ref = np.arange(0, Ts*(N_points+pred_hor), Ts)
+
+    # Split indices into three segments, even if not equal length
+    idx_splits = np.array_split(np.arange(N_points+pred_hor), 3)
+
+    cart_ref = np.zeros(len(time_ref))
+    theta_ref = np.zeros(len(time_ref))
+    v_ref = np.zeros(len(time_ref))
+    omega_ref = np.zeros(len(time_ref))
+
+    # Middle third: sin(2t)
+    cart_ref[idx_splits[1]] = 2
+
+    cart_ref[idx_splits[2]] = 6
+
+    return time_ref, cart_ref, theta_ref, v_ref, omega_ref
+
+def sinusoidal_ref(Ts, N_points, pred_hor):
+    time_ref = np.linspace(0, Ts, N_points+pred_hor)
+
+    # Split indices into three segments, even if not equal length
+    # idx_splits = np.array_split(np.arange(N_points+pred_hor), 3)
+
+    cart_ref = np.sin(500*time_ref)
+    theta_ref = np.zeros(N_points+pred_hor)
+    # v_ref = np.zeros(N_points+pred_hor)
+    v_ref = np.gradient(cart_ref)
+    omega_ref = np.zeros(N_points+pred_hor)
+
+    # Middle third: sin(2t)
+    # cart_ref[idx_splits[1]] = 2
+
+    # cart_ref[idx_splits[2]] = 6
+
+    return time_ref, cart_ref, theta_ref, v_ref, omega_ref
+
+
+def plot_references(time_ref, cart_ref, theta_ref, v_ref, omega_ref):
+    """
+    Plot reference signals over time.
+
+    Parameters:
+        time_ref   (array): Time vector
+        cart_ref   (array): Cart position reference
+        theta_ref  (array): Pendulum angle reference
+        v_ref      (array): Cart velocity reference
+        omega_ref  (array): Pendulum angular velocity reference
+        slack_ref  (array): Slack variable reference
+    """
+    plt.figure(figsize=(12, 10))
+
+    plt.subplot(5, 1, 1)
+    plt.plot(time_ref, cart_ref, label='Cart Position (ref)')
+    plt.ylabel('Cart')
+    plt.legend()
+    plt.grid(True)
+
+    plt.subplot(5, 1, 2)
+    plt.plot(time_ref, theta_ref, label='Pendulum Angle (ref)', color='orange')
+    plt.ylabel('Theta')
+    plt.legend()
+    plt.grid(True)
+
+    plt.subplot(5, 1, 3)
+    plt.plot(time_ref, v_ref, label='Cart Velocity (ref)', color='green')
+    plt.ylabel('Velocity')
+    plt.legend()
+    plt.grid(True)
+
+    plt.subplot(5, 1, 4)
+    plt.plot(time_ref, omega_ref, label='Angular Velocity (ref)', color='purple')
+    plt.ylabel('Omega')
+    plt.legend()
+    plt.grid(True)
+
+    plt.tight_layout()
+    plt.show()
+
+

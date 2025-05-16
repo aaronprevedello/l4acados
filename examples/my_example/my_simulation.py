@@ -25,11 +25,7 @@ from l4acados.controllers import (
     ResidualLearningMPC,
 )
 
-from pendulum_model import (
-    export_pendulum_ode_model_with_discrete_rk4,
-    export_pendulum_ode_real_model_with_discrete_rk4,
-    export_ocp_cartpendulum_discrete,
-)
+from my_pendulum_model import *
 from utils import *
 
 from casadi_gp_callback import GPDiscreteCallback
@@ -69,13 +65,13 @@ ocp_opts.qp_solver = "FULL_CONDENSING_HPIPM"
 
 nominal_model = export_pendulum_ode_model_with_discrete_rk4(Ts_st, black_box=False)
 
-real_model = export_pendulum_ode_real_model_with_discrete_rk4(Ts_st)
+real_model = export_pendulum_ode_model_with_discrete_rk4(Ts_st)
 
-ocp = export_ocp_cartpendulum_discrete(N_horizon, Tf, nominal_model)   
-ocp.model = nominal_model
+ocp = export_ocp_cartpendulum_discrete(N_horizon, Tf)
 ocp.solver_options = ocp_opts
 ocp.solver_options.nlp_solver_tol_eq = 1e-2
 ocp_solver = AcadosOcpSolver(ocp, json_file="acados_ocp.json")
+
 
 sim = AcadosSim()
 sim.model = real_model
@@ -98,6 +94,7 @@ for i in range(N_sim):
     # Computation of the optimal control input with nominal model
     ocp_solver.set(0, "lbx", x_current)
     ocp_solver.set(0, "ubx", x_current)
+    ocp_solver.set(0, "p", np.array([0.5]))
     ocp_solver.solve()
 
     u0 = ocp_solver.get(0, "u")
@@ -111,6 +108,7 @@ for i in range(N_sim):
     # Simulation of the real model
     sim_solver.set("x", x_current)
     sim_solver.set("u", u0)
+    sim_solver.set("p", np.array([0.5])) # real pendulum length
     sim_solver.solve()
 
     # Get the next state from the simulation
@@ -163,22 +161,22 @@ plt.show()
 np.savez("rollout_data.npz", X_sim=X_sim, U_sim=U_sim)
 
 # Plot the difference between the predicted state and the real state
-plt.figure(figsize=(10, 6))
-plt.subplot(2, 1, 1)
-plt.plot(time_vec[:-1], next_pred_state[:,0 ]-X_sim[1:, 0], label='Predicted p - Real p')
-plt.plot(time_vec[:-1], next_pred_state[:,2]-X_sim[1:, 2], label='Predicted v - Real v')
-plt.xlabel('time (s)')
-plt.ylabel('speed (m/s) / position (m)')
-plt.legend()
-plt.grid()
-plt.subplot(2, 1, 2)
-plt.plot(time_vec[:-1], next_pred_state[:,1]-X_sim[1:, 1], label='Predicted theta - Real theta')
-plt.plot(time_vec[:-1], next_pred_state[:,3]-X_sim[1:, 3], label='Predicted omega - Real omega')
-plt.xlabel('time (s)')
-plt.ylabel('angle (rad) / angular speed (rad/s)')
-plt.legend()
-plt.grid()
-plt.show()
+# plt.figure(figsize=(10, 6))
+# plt.subplot(2, 1, 1)
+# plt.plot(time_vec[:-1], next_pred_state[:,0 ]-X_sim[1:, 0], label='Predicted p - Real p')
+# plt.plot(time_vec[:-1], next_pred_state[:,2]-X_sim[1:, 2], label='Predicted v - Real v')
+# plt.xlabel('time (s)')
+# plt.ylabel('speed (m/s) / position (m)')
+# plt.legend()
+# plt.grid()
+# plt.subplot(2, 1, 2)
+# plt.plot(time_vec[:-1], next_pred_state[:,1]-X_sim[1:, 1], label='Predicted theta - Real theta')
+# plt.plot(time_vec[:-1], next_pred_state[:,3]-X_sim[1:, 3], label='Predicted omega - Real omega')
+# plt.xlabel('time (s)')
+# plt.ylabel('angle (rad) / angular speed (rad/s)')
+# plt.legend()
+# plt.grid()
+# plt.show()
 
 # Define the GP model
 train_inputs = torch.tensor(X_gp[:-1, :], dtype=torch.float32)  
@@ -195,7 +193,6 @@ gp_model = BatchIndependentMultitaskGPModel(
 # Train the GP model on the data   
 gp_model, likelihood = train_gp_model(
     gp_model, training_iterations=500, learning_rate=0.05)
-
 
 save_path = "gp_model.pth"
 # Save state dicts and training data (optional if not used later)
@@ -227,12 +224,12 @@ B_m = np.array([
 # New simulation using the residual model
 nominal_model = export_pendulum_ode_model_with_discrete_rk4(Ts_st, black_box=True)
 
-real_model = export_pendulum_ode_real_model_with_discrete_rk4(Ts_st)
+real_model = export_pendulum_ode_model_with_discrete_rk4(Ts_st)
 
-ocp = export_ocp_cartpendulum_discrete(N_horizon, Tf, nominal_model)   
-# ocp.model = nominal_model
+ocp = export_ocp_cartpendulum_discrete(N_horizon, Tf)   
 ocp.solver_options.nlp_solver_tol_eq = 1e-2
 ocp_solver = AcadosOcpSolver(ocp, json_file="acados_ocp.json")
+ocp_solver.set(0, "p", np.array([0.8])) # nominal pendulum length
 
 # Define l4acados solver
 l4acados_solver = ResidualLearningMPC(
@@ -247,6 +244,7 @@ sim.solver_options.T = Tf / N_horizon
 
 sim_solver = AcadosSimSolver(sim, json_file="acados_sim.json")
 sim_solver.model = real_model
+sim_solver.set("p", np.array([0.5])) # real pendulum length
 
 x0 = np.array([0.0, 0.0, np.pi, 0.0])  # start slightly off upright
 x_current = x0.copy()
@@ -330,9 +328,9 @@ plt.show()
 np.savez("rollout_data_res_ctrl.npz", X_sim_res=X_sim_res, U_sim_res=U_sim_res)
 
 
-plot_gp_fit_on_training_data(
-    train_inputs,
-    train_outputs,
-    gp_model,
-    likelihood,
-)
+# plot_gp_fit_on_training_data(
+#     train_inputs,
+#     train_outputs,
+#     gp_model,
+#     likelihood,
+# )

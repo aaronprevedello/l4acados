@@ -83,7 +83,7 @@ def export_ocp_nominal(N, T, ocp_opts=None, only_lower_bounds=False, **model_kwa
         only_lower_bounds=only_lower_bounds, **model_kwargs
     )
 
-    # generate acados OCP for INITITIALIZATION
+    # generate acados OCP for INITIALIZATION
     ocp = AcadosOcp()
 
     ocp.model = model
