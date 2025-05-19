@@ -671,7 +671,11 @@ def build_augmented_state(state_hist, input_hist):
     x_k     = state_hist[-1]
     x_k1    = state_hist[-2]
     x_k2    = state_hist[-3]
+    x_k3    = state_hist[-4]
+    x_k4    = state_hist[-5]
     u_k1    = input_hist[-2]
     u_k2    = input_hist[-3]
-    x_aug = np.concatenate([x_k, x_k1[0:2], u_k1, x_k2[0:2], u_k2])  # Only x, theta and inputs from past
+    u_k3    = input_hist[-4]
+    u_k4    = input_hist[-5]
+    x_aug = np.concatenate([x_k, x_k1[0:2], u_k1, x_k2[0:2], u_k2, x_k3[0:2], u_k3, x_k4[0:2], u_k4])  # Only x, theta and inputs from past
     return x_aug
