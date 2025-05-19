@@ -20,9 +20,8 @@ for f in files:
     X.append(data["x"])
     U.append(data["u"])
     T.append(data["i"])
+    print("X shape is ", data["x"].shape)
 
-X[0] = np.array([0.0, np.pi, 0.0, 0.0, 0.0])
-print("First item in X is ", X[0])
 X = np.array(X)  # shape: (N_iter, dim_x)
 U = np.array(U)  # shape: (N_iter, dim_u)
 T = np.array(T)  # shape: (N_iter,)

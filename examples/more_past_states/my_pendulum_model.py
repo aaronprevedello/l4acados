@@ -185,12 +185,22 @@ def export_augmented_pendulum_ode_model(dt, black_box=False) -> AcadosModel:
     x1_p2 = SX.sym('x_p2')
     x2_p2 = SX.sym('theta_p2')
     u_p2 = SX.sym('u_p2')  # control input at previous time step
+    # Previous states (x_{k-3})
+    x1_p3 = SX.sym('x_p3')
+    x2_p3 = SX.sym('theta_p3')
+    u_p3 = SX.sym('u_p3')  # control input at previous time step
+    # Previous states (x_{k-4})
+    x1_p4 = SX.sym('x_p4')
+    x2_p4 = SX.sym('theta_p4')
+    u_p4 = SX.sym('u_p4')  # control input at previous time step
 
     # Full state
     x_curr = vertcat(x1, x2, x3, x4)
     x_prev1 = vertcat(x1_p1, x2_p1, u_p1)
     x_prev2 = vertcat(x1_p2, x2_p2, u_p2)
-    x_full = vertcat(x_curr, x_prev1, x_prev2)
+    x_prev3 = vertcat(x1_p3, x2_p3, u_p3)
+    x_prev4 = vertcat(x1_p4, x2_p4, u_p4)
+    x_full = vertcat(x_curr, x_prev1, x_prev2, x_prev3, x_prev4)
 
     # Control input
     F = SX.sym('F')
@@ -206,7 +216,11 @@ def export_augmented_pendulum_ode_model(dt, black_box=False) -> AcadosModel:
     u_prev1 = SX.sym('u_prev1', 1)
     xdot_prev2 = SX.sym('xdot_prev2', 2)
     u_prev2 = SX.sym('u_prev2', 1)
-    xdot = vertcat(xdot_curr, xdot_prev1, u_prev1, xdot_prev2, u_prev2)
+    xdot_prev3 = SX.sym('xdot_prev3', 2)
+    u_prev3 = SX.sym('u_prev3', 1)
+    xdot_prev4 = SX.sym('xdot_prev4', 2)
+    u_prev4 = SX.sym('u_prev4', 1)
+    xdot = vertcat(xdot_curr, xdot_prev1, u_prev1, xdot_prev2, u_prev2, xdot_prev3, u_prev3, xdot_prev4, u_prev4)
 
     # Flag for enabling/disabling physical dynamics
     ode_flag = 0 if black_box else 1
@@ -228,6 +242,12 @@ def export_augmented_pendulum_ode_model(dt, black_box=False) -> AcadosModel:
         (x1_p1 - x1_p2) / dt,
         (x2_p1 - x2_p2) / dt, 
         (u_p1 - u_p2) / dt,
+        (x1_p2 - x1_p3) / dt,
+        (x2_p2 - x2_p3) / dt, 
+        (u_p3 - u_p3) / dt,
+        (x1_p3 - x1_p4) / dt,
+        (x2_p3 - x2_p4) / dt, 
+        (u_p3 - u_p4) / dt,
     )
 
     # --- Implicit Dynamics ---
@@ -280,7 +300,7 @@ def export_my_augmented_pendulum_ode_model_with_discrete_rk4(dt, black_box=False
 def export_augmented_ocp_cartpendulum_discrete(N, T, model, only_lower_bounds=False, **model_kwargs):
     # Stato iniziale: cart a 0, pendolo verticale, stati passati uguali
     #x0 = np.tile(np.array([0.0, np.pi, 0.0, 0.0]), )  # x_k, x_{k-1}, x_{k-2}
-    x0 = np.concatenate((np.array([0.0, np.pi, 0.0, 0.0]), np.array([0, np.pi, 0, 0, np.pi, 0])))  # start slightly off upright
+    x0 = np.concatenate((np.array([0.0, np.pi, 0.0, 0.0]), np.array([0, np.pi, 0, 0, np.pi, 0, 0, np.pi, 0, 0, np.pi, 0])))  # start slightly off upright
 
     # Limiti input
     lb_u = -50.0

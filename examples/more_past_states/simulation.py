@@ -50,7 +50,7 @@ from l4acados.models.pytorch_models.gpytorch_models.gpytorch_residual_model impo
     GPyTorchResidualModel,
 )
 
-train_flag = True
+train_flag = False
 simple_zero_ref = False
 param_tau = 0.05
 param_l_nom = 0.5
@@ -66,7 +66,7 @@ if not simple_zero_ref:
     #time_ref, p_ref, theta_ref, v_ref, omega_ref = sinusoidal_ref(Ts_st, N_sim, N_horizon)
     time_ref, p_ref, theta_ref, v_ref, omega_ref = mix_ref(Ts_st, N_sim, N_horizon)
     # time_ref, p_ref, theta_ref, v_ref, omega_ref = rich_mix_ref(Ts_st, N_sim, N_horizon)
-plot_references(time_ref, p_ref, theta_ref, v_ref, omega_ref)
+# plot_references(time_ref, p_ref, theta_ref, v_ref, omega_ref)
 
 # Definition of AcadosOcpOptions 
 ocp_opts = AcadosOcpOptions()
@@ -75,11 +75,8 @@ ocp_opts.N_horizon = N_horizon
 ocp_opts.qp_solver = "FULL_CONDENSING_HPIPM"
 
 nominal_model = export_my_augmented_pendulum_ode_model_with_discrete_rk4(Ts_st, black_box=False) # with black_box false w do not disable the dynamics for v and omega
-# print("nominal_model.p is ", nominal_model.p)
 
 real_model = export_pendulum_ode_model_with_discrete_rk4(Ts_st) 
-# real_model.set("p", 0.5)
-# print("real_model.p is ", real_model.p)
 
 ocp = export_augmented_ocp_cartpendulum_discrete(N_horizon, Tf, nominal_model)   
 ocp.parameter_values = np.array([param_l_nom])
@@ -99,15 +96,15 @@ sim_solver.model = real_model
 sim_solver.set("p", np.array([param_l_real, param_tau]))
 # print("sim_solver.model.p is ", sim_solver.model.p)
 
-x0 = np.concatenate((np.array([0.0, np.pi, 0.0, 0.0]), np.array([0, np.pi, 0, 0, np.pi, 0])))  # start slightly off upright
-# x0 = np.tile(np.array([0.0, np.pi, 0.0, 0.0]), 3)
-x_current = x0.copy()
-x0_real = x0[0:5].copy()
+x0 = np.concatenate((np.array([0.0, np.pi, 0.0, 0.0]), np.array([0, np.pi, 0, 0, np.pi, 0, 0, np.pi, 0, 0, np.pi, 0]))) 
+x_current = x0.copy()  # set initial condition for the first loop's iteration
+x0_real = x0[0:5].copy()  # starting condition for the real model
 sim_solver.set("x", x0[0:5])
 
-X_sim = [x0.copy()]
+# set lists to store simulation values
+X_sim = [x0_real.copy()]
 U_sim = []
-X_gp = np.array([]) # composed by all the states and the input
+X_gp = [x0.copy()] # composed by all the states and the inputs
 Y_gp = np.array([]) # difference between next predicted state and the next real state
 next_pred_state = [] # next predicted state
 
@@ -117,13 +114,14 @@ print(f"Integration step is {Ts_st} [s]")
 print(f"Length of the total simulation is {N_sim*Ts_st} [s]")
 # Buffer to store past two states for p and theta, and past two inputs
 # History buffers
-state_history = deque([x0_real[0:4]] * 3, maxlen=3)
-input_history = deque([np.zeros(1)] * 3, maxlen=3)
+state_history = deque([x0_real[0:4]] * 5, maxlen=5)
+input_history = deque([np.zeros(1)] * 5, maxlen=5)
 x_next = x0_real.copy() # for the first iteration in order to set u_act as 0
 
 # Simulate the system
 for i in range(N_sim):
-    x_aug = build_augmented_state(state_history, input_history)
+
+    x_aug = build_augmented_state(state_history, input_history) # return the augmented state with present and past info
 
     # Computation of the optimal control input with nominal model
     ocp_solver.set(0, "lbx", x_aug)
@@ -143,21 +141,20 @@ for i in range(N_sim):
     # Get the optimal control input and the predicted state
     u0 = ocp_solver.get(0, "u")
     pred_state = ocp_solver.get(0, "x")
-    # print("pred_state is ", pred_state.shape)
-    # print("U_sim is ", U_sim.shape)
     
+    # Store optimal control input and next predicted state
     U_sim.append(u0)
     next_pred_state.append(pred_state)
 
-    # Simulation of the real model
+    # Simulation of the optimal control input applied to the real model
     sim_solver.set("x", np.array([x_current[0], x_current[1], x_current[2], x_current[3], x_next[4]]))
     sim_solver.set("u", u0)
     sim_solver.solve()
 
-    # Get the next state from the simulation
+    # Get the next state from the simulation of the real model
     x_next = sim_solver.get("x")
 
-    # Update buffers (exclude u_act for controller's history)
+    # Update buffers (exclude u_act for controller's state history)
     state_history.append(x_next[0:4].copy())
     input_history.append(u0.copy())
 
@@ -167,10 +164,16 @@ for i in range(N_sim):
         x_next[0:4],                          # current state
         state_history[-2][0:2].copy(),            # previous state
         input_history[-2].copy(),            # previous input
-        state_history[-3][0:2].copy(),            # two steps ago
-        input_history[-3].copy()             # two steps ago
+        state_history[-3][0:2].copy(),            # two steps ago        
+        input_history[-3].copy(),             # two steps ago
+        state_history[-4][0:2].copy(),            # three steps ago
+        input_history[-4].copy(),             # three steps ago
+        state_history[-5][0:2].copy(),            # four steps ago
+        input_history[-5].copy()             # four steps ago
     ))
-    X_sim.append(augmented_x_next.copy())
+    X_sim.append(x_next[0:5].copy())
+    X_gp.append(augmented_x_next.copy())
+    # X_sim.append(augmented_x_next.copy())
     x_current = x_next.copy()
 
 # Convert lists to numpy arrays
@@ -180,16 +183,10 @@ next_pred_state = np.array(next_pred_state)   # [p, theta, v, omega and all the 
 
 # GENERATE THE GP DATA
 # Input to GP
-X_gp = np.hstack([X_sim[:-1, :], U_sim])
+X_gp = np.array(X_gp)
+X_gp = np.hstack([X_gp[:-1], U_sim])
 
-# print("X_gp shape is ", X_gp.shape)
-# print("next_pred_state shape is ", next_pred_state.shape)
-
-# Targets 
-# Grey Box model: target is the difference between the next predicted state and the next real state   
-# Y_gp_v = X_gp[1:, 2] - next_pred_state[:, 2]
-# Y_gp_w = X_gp[1:, 3] - next_pred_state[:, 3]
-
+# TARGETS 
 # Black Box model: target is the difference between the next and the actual state
 Y_gp_p = X_gp[1:, 0] - X_gp[:-1, 0]
 Y_gp_theta = X_gp[1:, 1] - X_gp[:-1, 1]
@@ -198,15 +195,6 @@ Y_gp_w = X_gp[1:, 3] - X_gp[:-1, 3]
 
 # Time vector
 time_vec = np.linspace(0, Tf / N_horizon * N_sim, N_sim + 1)
-
-# Test difference between gradient of position vector and the real velocity vector
-# plt.figure(figsize=(10, 6))
-# plt.plot(time_vec[:], np.gradient(X_sim[:, 1]), label='gradient of position vector')
-# plt.plot(time_vec[:], X_sim[:, 3], label='real velocity vector')
-# plt.legend()
-# plt.grid()
-# plt.show()
-
 
 # Plot the results
 plt.figure(figsize=(10, 6))
@@ -233,30 +221,13 @@ plt.show()
 np.savez("second_mix.npz", X_gp=X_gp, Y_gp_v=Y_gp_v, Y_gp_w=Y_gp_w)
 # X_gp_from_npz, Y_gp_v_from_npz, Y_gp_w_from_npz = create_gp_input_from_npz(["gp_data00.npz", "gp_data01.npz", "gp_data02.npz"])
 
-
-# Plot the difference between the predicted state and the real state
-# plt.figure(figsize=(10, 6))
-# plt.subplot(2, 1, 1)
-# plt.plot(time_vec[:-1], next_pred_state[:,0 ]-X_sim[1:, 0], label='Predicted p - Real p')
-# plt.plot(time_vec[:-1], next_pred_state[:,2]-X_sim[1:, 2], label='Predicted v - Real v')
-# plt.xlabel('time (s)')
-# plt.ylabel('speed (m/s) / position (m)')
-# plt.legend()
-# plt.grid()
-# plt.subplot(2, 1, 2)
-# plt.plot(time_vec[:-1], next_pred_state[:,1]-X_sim[1:, 1], label='Predicted theta - Real theta')
-# plt.plot(time_vec[:-1], next_pred_state[:,3]-X_sim[1:, 3], label='Predicted omega - Real omega')
-# plt.xlabel('time (s)')
-# plt.ylabel('angle (rad) / angular speed (rad/s)')
-# plt.legend()
-# plt.grid()
-# plt.show()
-
 # Define the GP model
+# Composition of input and output tensors
 train_inputs = torch.tensor(X_gp[:-1, :], dtype=torch.float32)  
 train_outputs = torch.tensor(np.hstack([Y_gp_p.reshape(-1,1), Y_gp_theta.reshape(-1,1), Y_gp_v.reshape(-1, 1), Y_gp_w.reshape(-1, 1)]), dtype=torch.float32)
 #train_inputs = torch.tensor(X_gp_from_npz, dtype=torch.float32)  
 #train_outputs = torch.tensor(np.hstack([Y_gp_v_from_npz.reshape(-1, 1), Y_gp_w_from_npz.reshape(-1, 1)]), dtype=torch.float32)
+
 likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks = 4)
 gp_model = BatchIndependentMultitaskGPModel(
     train_x = train_inputs,
@@ -302,12 +273,18 @@ likelihood.eval()
 # Define residual model
 res_model = GPyTorchResidualModel(gp_model)
 
-# Define mapping from gp outputs (dim=4) to model states (dim=10)
+# Define mapping from gp outputs (dim=4) to model states (dim=16)
 B_m = np.array([
     [1, 0, Ts_st / 2, 0],
     [0, 1, 0, Ts_st / 2],
     [0, 0, 1.0, 0],
     [0, 0, 0, 1.0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
+    [0, 0, 0, 0],
     [0, 0, 0, 0],
     [0, 0, 0, 0],
     [0, 0, 0, 0],
@@ -345,16 +322,17 @@ sim_solver.model = real_model
 sim_solver.set("p", np.array([0.5, 0.1]))
 sim_solver.set("x", x0[0:5])
 
-x0 = np.concatenate((np.array([0.0, np.pi, 0.0, 0.0]), np.array([0, np.pi, 0, 0, np.pi, 0])))  # start slightly off upright
-# x0 = np.tile(np.array([0.0, np.pi, 0.0, 0.0]), 3)
-x_current = x0.copy()
+# Initial condition
+x0 = np.concatenate((np.array([0.0, np.pi, 0.0, 0.0]), np.array([0, np.pi, 0, 0, np.pi, 0, 0, np.pi, 0, 0, np.pi, 0]))) 
+x_current = x0[0:5].copy()
 
-X_sim_res = [x0[0:5].copy()]
-U_sim_res = []
+X_nom_model = [x0.copy()]
+X_real = [x0[0:5].copy()]
+U_des = []
 X_gp = np.array([]) # composed by all the states and the input + previous positions of pendulum and cart
 Y_gp = np.array([]) # difference between next predicted state and the next real state
 
-
+# Empty the folder where to store live data
 save_dir = "grafici"
 for file in os.listdir(save_dir):
     file_path = os.path.join(save_dir, file)
@@ -372,11 +350,12 @@ v_predicted = np.zeros((N_sim, N_horizon))
 omega_predicted = np.zeros((N_sim, N_horizon))
 
 # History buffers
-state_history = deque([x0_real[0:4]] * 3, maxlen=3)
-input_history = deque([np.zeros(1)] * 3, maxlen=3)
+state_history = deque([x0_real[0:4]] * 5, maxlen=5)
+input_history = deque([np.zeros(1)] *  5, maxlen=5)
 x_next = x0_real.copy() # for the first iteration in order to set u_act as 0
 
 N_sim = 200
+simple_zero_ref = True
 # Simulate the system with the residual model
 for i in range(N_sim):
     # Computation of the optimal control input with nominal model + residual model
@@ -409,7 +388,7 @@ for i in range(N_sim):
     # print("u0 is ", u0.shape)
     # print("U_sim is ", U_sim.shape)
     
-    U_sim_res.append(u0)
+    U_des.append(u0)
 
     # Simulation of the real model
     sim_solver.set("x", np.array([x_current[0], x_current[1], x_current[2], x_current[3], x_next[4]]))
@@ -418,6 +397,8 @@ for i in range(N_sim):
 
     # Get the next state from the simulation
     x_next = sim_solver.get("x")
+    print("x_next shape is ", x_next.shape)
+    X_real.append(x_next.copy())
 
     # Update buffers (exclude u_act for controller's history)
     state_history.append(x_next[0:4].copy())
@@ -431,7 +412,6 @@ for i in range(N_sim):
         }
     # Save data in the directory
     np.savez(os.path.join(save_dir, f"step_{i:03d}.npz"), **data_dict)
-
     
     # Update current state
     # Augment x_next before appending
@@ -439,18 +419,24 @@ for i in range(N_sim):
         x_next[0:4],                          # current state
         state_history[-2][0:2].copy(),            # previous state
         input_history[-2].copy(),            # previous input
-        state_history[-3][0:2].copy(),            # two steps ago
-        input_history[-3].copy()             # two steps ago
+        state_history[-3][0:2].copy(),            # two steps ago        
+        input_history[-3].copy(),             # two steps ago
+        state_history[-4][0:2].copy(),            # three steps ago
+        input_history[-4].copy(),             # three steps ago
+        state_history[-5][0:2].copy(),            # four steps ago
+        input_history[-5].copy()             # four steps ago
+
     ))
-    X_sim_res.append(augmented_x_next.copy())
+    X_nom_model.append(augmented_x_next.copy())
     x_current = x_next.copy()    
 
 print("End of the simulation")
 
 
 # Convert lists to numpy arrays
-X_sim_res = np.array(X_sim_res)
-U_sim_res = np.array(U_sim_res)
+X_nom_model = np.array(X_nom_model)
+U_des = np.array(U_des)
+X_real = np.array(X_real)
 p_predicted = np.array(p_predicted)
 theta_predicted = np.array(theta_predicted)
 v_predicted = np.array(v_predicted)
@@ -467,7 +453,7 @@ time_vec = np.linspace(0, Tf / N_horizon * N_sim, N_sim + 1)
 # Plot the results
 plt.figure(figsize=(10, 6))
 plt.subplot(3, 1, 1)
-plt.plot(time_vec, X_sim_res[:, 0], '-+', label='Gp Cart Position')
+plt.plot(time_vec, X_nom_model[:, 0], '-+', label='Gp Cart Position')
 plt.plot(time_vec, X_sim[:, 0], '-+', label='Nominal Cart Position')
 plt.plot(time_ref[:N_sim], p_ref[:N_sim], label="ref")
 # Plot predicted trajectories every 10 time steps
@@ -484,14 +470,14 @@ plt.ylabel('position (m)')
 plt.legend()
 plt.grid()
 plt.subplot(3, 1, 2)
-plt.plot(time_vec[:-1], U_sim_res, '-+', label='Gp Control Input (Force)')
+plt.plot(time_vec[:-1], U_des, '-+', label='Gp Control Input (Force)')
 plt.plot(time_vec[:-1], U_sim, '-+', label='Nominal Input (Force)')
 plt.grid()
 plt.xlabel('time (s)')
 plt.ylabel('force (N)')
 plt.legend()
 plt.subplot(3, 1, 3)
-plt.plot(time_vec, X_sim_res[:, 1], '-+', label='Gp Pendulum Angle')
+plt.plot(time_vec, X_nom_model[:, 1], '-+', label='Gp Pendulum Angle')
 plt.plot(time_vec, X_sim[:, 1], '-+', label='Nominal Pendulum Angle')
 plt.plot(time_ref[:N_sim], theta_ref[:N_sim], label="ref")
 # Plot predicted trajectories every 10 time steps
@@ -511,6 +497,6 @@ plt.grid()
 plt.tight_layout()
 plt.show()
 
-visualize_inverted_pendulum(X_sim_res, U_sim_res, time_vec)
+visualize_inverted_pendulum(X_real, U_des, time_vec)
 
-np.savez("rollout_data_res_ctrl.npz", X_sim_res=X_sim_res, U_sim_res=U_sim_res)
+np.savez("rollout_data_res_ctrl.npz", X_real=X_real, U_des=U_des)
