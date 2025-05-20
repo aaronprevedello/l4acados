@@ -51,7 +51,7 @@ from l4acados.models.pytorch_models.gpytorch_models.gpytorch_residual_model impo
 )
 
 train_flag = False
-simple_zero_ref = False
+ref_type = 'mix'  # 'swing_up', 'vertical', 'sin', 'mix', 'rich_mix'
 param_tau = 0.05
 param_l_nom = 0.5
 param_l_real = 0.5
@@ -61,11 +61,14 @@ Tf = 1.5  # time horizon [s]
 N_sim = 1000   # numer of simulation steps
 Ts_st = Tf / N_horizon  # integrator time step
 
-if not simple_zero_ref:
-    # time_ref, p_ref, theta_ref, v_ref, omega_ref = vertical_points_ref(Ts_st, N_sim, N_horizon)
-    #time_ref, p_ref, theta_ref, v_ref, omega_ref = sinusoidal_ref(Ts_st, N_sim, N_horizon)
+if ref_type == 'vertical':
+    time_ref, p_ref, theta_ref, v_ref, omega_ref = vertical_points_ref(Ts_st, N_sim, N_horizon)
+elif ref_type == 'sin':    
+    time_ref, p_ref, theta_ref, v_ref, omega_ref = sinusoidal_ref(Ts_st, N_sim, N_horizon)
+elif ref_type == 'mix':
     time_ref, p_ref, theta_ref, v_ref, omega_ref = mix_ref(Ts_st, N_sim, N_horizon)
-    # time_ref, p_ref, theta_ref, v_ref, omega_ref = rich_mix_ref(Ts_st, N_sim, N_horizon)
+elif ref_type == 'rich_mix':
+    time_ref, p_ref, theta_ref, v_ref, omega_ref = rich_mix_ref(Ts_st, N_sim, N_horizon)
 # plot_references(time_ref, p_ref, theta_ref, v_ref, omega_ref)
 
 # Definition of AcadosOcpOptions 
@@ -128,7 +131,7 @@ for i in range(N_sim):
     ocp_solver.set(0, "ubx", x_aug)
     
     # Update cost reference at each stage in the horizon
-    if not simple_zero_ref:
+    if ref_type != 'swing_up':
         for stage in range(ocp_solver.N):
             stage_yref = np.array([p_ref[i+stage], theta_ref[i+stage], v_ref[i+stage], omega_ref[i+stage],0])
             ocp_solver.set(stage, "yref", stage_yref)
@@ -171,7 +174,7 @@ for i in range(N_sim):
         state_history[-5][0:2].copy(),            # four steps ago
         input_history[-5].copy()             # four steps ago
     ))
-    X_sim.append(x_next[0:5].copy())
+    X_sim.append(x_next.copy())
     X_gp.append(augmented_x_next.copy())
     # X_sim.append(augmented_x_next.copy())
     x_current = x_next.copy()
@@ -201,7 +204,7 @@ plt.figure(figsize=(10, 6))
 plt.subplot(2, 1, 1)
 plt.plot(time_vec, X_sim[:, 0], label='Cart Position')
 plt.plot(time_vec, X_sim[:, 1], label='Pendulum Angle')
-if not simple_zero_ref:
+if ref_type != 'swing_up':
     plt.plot(time_ref[:N_sim+1], p_ref[:N_sim+1], label='Cart Ref')
     plt.plot(time_ref[:N_sim+1], theta_ref[:N_sim+1], label='Pendulum Ref')
 plt.xlabel('time (s)')
@@ -275,8 +278,8 @@ res_model = GPyTorchResidualModel(gp_model)
 
 # Define mapping from gp outputs (dim=4) to model states (dim=16)
 B_m = np.array([
-    [1, 0, Ts_st / 2, 0],
-    [0, 1, 0, Ts_st / 2],
+    [1, 0, Ts_st/2, 0],   # Ts_st / 2 on third column
+    [0, 1, 0, Ts_st],   # Ts_st / 2 on fourh column
     [0, 0, 1.0, 0],
     [0, 0, 0, 1.0],
     [0, 0, 0, 0],
@@ -300,7 +303,7 @@ real_model = export_pendulum_ode_model_with_discrete_rk4(Ts_st)
 
 ocp = export_augmented_ocp_cartpendulum_discrete(N_horizon, Tf, nominal_model)   
 ocp.parameter_values = np.array([param_l_nom])
-ocp.solver_options.integrator_type = "IRK"  # valid types: "ERK", "IRK", "GNSF"
+ocp.solver_options.integrator_type = "ERK"  # valid types: "ERK", "IRK", "GNSF"
 ocp.solver_options.nlp_solver_tol_eq = 1e-2
 ocp_solver = AcadosOcpSolver(ocp, json_file="acados_ocp.json")
 
@@ -319,7 +322,7 @@ sim.solver_options.T = Tf / N_horizon
 
 sim_solver = AcadosSimSolver(sim, json_file="acados_sim.json")
 sim_solver.model = real_model
-sim_solver.set("p", np.array([0.5, 0.1]))
+sim_solver.set("p", np.array([param_l_real, param_tau]))
 sim_solver.set("x", x0[0:5])
 
 # Initial condition
@@ -354,8 +357,8 @@ state_history = deque([x0_real[0:4]] * 5, maxlen=5)
 input_history = deque([np.zeros(1)] *  5, maxlen=5)
 x_next = x0_real.copy() # for the first iteration in order to set u_act as 0
 
-N_sim = 200
-simple_zero_ref = True
+# N_sim = 200
+# simple_zero_ref = True
 # Simulate the system with the residual model
 for i in range(N_sim):
     # Computation of the optimal control input with nominal model + residual model
@@ -368,7 +371,7 @@ for i in range(N_sim):
     l4acados_solver.set(0, "ubx", x_aug)
 
     # Update cost reference at each stage in the horizon
-    if not simple_zero_ref:
+    if ref_type != 'swing_up':
         for stage in range(l4acados_solver.N):
             stage_yref = np.array([p_ref[i+stage], theta_ref[i+stage], v_ref[i+stage], omega_ref[i+stage],0])
             l4acados_solver.set(stage, "yref", stage_yref)
@@ -397,7 +400,6 @@ for i in range(N_sim):
 
     # Get the next state from the simulation
     x_next = sim_solver.get("x")
-    print("x_next shape is ", x_next.shape)
     X_real.append(x_next.copy())
 
     # Update buffers (exclude u_act for controller's history)
@@ -449,7 +451,6 @@ print("omega_predicted shape is ", omega_predicted.shape)
 
 # Time vector
 time_vec = np.linspace(0, Tf / N_horizon * N_sim, N_sim + 1)
-
 # Plot the results
 plt.figure(figsize=(10, 6))
 plt.subplot(3, 1, 1)
@@ -497,6 +498,6 @@ plt.grid()
 plt.tight_layout()
 plt.show()
 
-visualize_inverted_pendulum(X_real, U_des, time_vec)
+visualize_inverted_pendulum(X_real, U_des, time_vec, REF = p_ref)
 
 np.savez("rollout_data_res_ctrl.npz", X_real=X_real, U_des=U_des)
