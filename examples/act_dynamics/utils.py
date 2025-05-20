@@ -345,9 +345,9 @@ def mix_ref(Ts, N_points, pred_hor):
     cart_ref[idx_splits[5]] = -1
     cart_ref[idx_splits[6]] = 0
 
-    cart_ref[idx_splits[7]] = 3*np.sin(3*time_ref[idx_splits[7]])
-    cart_ref[idx_splits[8]] = 3*np.sin(5*time_ref[idx_splits[8]])
-    cart_ref[idx_splits[9]] = 3*np.sin(time_ref[idx_splits[9]])
+    cart_ref[idx_splits[7]] = 3*np.sin(time_ref[idx_splits[7]])
+    cart_ref[idx_splits[8]] = 2*np.sin(1.5*time_ref[idx_splits[8]])
+    cart_ref[idx_splits[9]] = 2*np.sin(time_ref[idx_splits[9]])
 
     v_ref = np.gradient(cart_ref)
     # cart_ref[idx_splits[10]] = np.sin(15*time_ref[idx_splits[10]])   
@@ -583,18 +583,24 @@ def visualize_inverted_pendulum(X_sim, U_sim, time_vec, REF=None):
     T = len(time)
 
     # Reference handling
+    print("REF shape is ", REF.shape)
     if REF is None:
         REF = np.zeros((T, 6))
-    elif REF.shape == (6,):
-        REF = np.tile(REF, (T, 1))
-    elif REF.shape[0] != T:
-        raise ValueError("REF must have shape (6,) or (T, 6)")
+
+    elif REF.ndim == 1:
+        # REF è un vettore 1D: trattato come solo riferimento posizione carrello
+        ref_len = REF.shape[0]
+        if ref_len > T:
+            REF = REF[:T]
+        elif ref_len < T:
+            REF = np.pad(REF, (0, T - ref_len), mode='constant')
+
 
     # Figure setup
     fig, ax = plt.subplots()
     ax.set_aspect('equal')
-    ax.set_xlim([-4, 4])
-    ax.set_ylim([-0.75, 0.75])
+    ax.set_xlim([-7, 7])
+    ax.set_ylim([-1, 1])
     ax.set_title('Inverted Pendulum on a Cart')
     ax.set_xlabel('X (m)')
     ax.set_ylabel('Y (m)')
@@ -629,9 +635,9 @@ def visualize_inverted_pendulum(X_sim, U_sim, time_vec, REF=None):
         py = +L * np.cos(theta[k])
         pendulum_line.set_data([x[k], px], [0, py])
 
-        cart_ref_marker.set_data(REF[k, 0], 0)
-        pendulum_ref_marker.set_data(REF[k, 0] - L * np.sin(REF[k, 1]),
-                                      L * np.cos(REF[k, 1]))
+        cart_ref_marker.set_data(REF[k], 0)
+        #pendulum_ref_marker.set_data(REF[k, 0] - L * np.sin(REF[k, 1]),
+        #                              L * np.cos(REF[k, 1]))
 
         timestamp.set_text(f'Time: {time[k]:.2f} s')
         return (cart_patch, wheel1, wheel2, pendulum_line,

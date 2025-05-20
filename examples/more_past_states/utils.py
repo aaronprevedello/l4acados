@@ -593,8 +593,8 @@ def visualize_inverted_pendulum(X_sim, U_sim, time_vec, REF=None):
     # Figure setup
     fig, ax = plt.subplots()
     ax.set_aspect('equal')
-    ax.set_xlim([-4, 4])
-    ax.set_ylim([-0.75, 0.75])
+    ax.set_xlim([-7, 7])
+    ax.set_ylim([-1, 1])
     ax.set_title('Inverted Pendulum on a Cart')
     ax.set_xlabel('X (m)')
     ax.set_ylabel('Y (m)')
