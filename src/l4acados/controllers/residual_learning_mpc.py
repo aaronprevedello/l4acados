@@ -6,7 +6,7 @@ from .zoro_acados_utils import (
     setup_sim_from_ocp,
     get_solve_opts_from_ocp,
 )
-from l4acados.models import ResidualModel
+from l4acados.models import ResidualModel, PyTorchResidualModel
 from typing import Tuple
 
 
@@ -101,8 +101,8 @@ class ResidualLearningMPC:
         self,
         use_cython=False,
         build_c_code=True,
-        path_json_ocp="residual_lbmpc_ocp_solver_config.json",
-        path_json_sim="residual_lbmpc_sim_solver_config.json",
+        path_json_ocp="residual_lbmpc_ocp_solver_config.json", # 
+        path_json_sim="residual_lbmpc_sim_solver_config.json", # 
     ) -> None:
         """
         build_c_code: Whether the solver should be built. If set to false, the solver
@@ -117,8 +117,8 @@ class ResidualLearningMPC:
         self.use_cython = use_cython
         if use_cython:
             if build_c_code:
-                AcadosOcpSolver.generate(self.ocp, json_file=path_json_ocp)
-                AcadosOcpSolver.build(self.ocp.code_export_directory, with_cython=True)
+                AcadosOcpSolver.generate(self.ocp, json_file=path_json_ocp)  # generate the code for ana acados OCP solver, given the description in acados_ocp
+                AcadosOcpSolver.build(self.ocp.code_export_directory, with_cython=True) # build the code for an acados OCP solver, that has been generated in code_export_directory
             self.ocp_solver = AcadosOcpSolver.create_cython_solver(path_json_ocp)
 
             if self.has_nominal_model:
@@ -138,7 +138,6 @@ class ResidualLearningMPC:
         self.num_iter = 0
         for i in range(self.ocp_opts["nlp_solver_max_iter"]):
             self.preparation()
-
             if acados_sqp_mode:
                 self.store_last_iterate()
 

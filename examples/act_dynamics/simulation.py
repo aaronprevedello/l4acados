@@ -25,7 +25,7 @@ from l4acados.controllers import (
     ResidualLearningMPC,
 )
 
-from my_pendulum_model import *
+from pendulum_model import *
 from utils import *
 
 # gpytorch_utils
@@ -79,7 +79,7 @@ ocp_opts.qp_solver = "FULL_CONDENSING_HPIPM"
 
 nominal_model = export_my_augmented_pendulum_ode_model_with_discrete_rk4(Ts_st, black_box=False) # with black_box false w do not disable the dynamics for v and omega
 
-real_model = export_pendulum_ode_model_with_discrete_rk4(Ts_st) 
+real_model = export_pendulum_ode_model_actuation() 
 
 ocp = export_augmented_ocp_cartpendulum_discrete(N_horizon, Tf, nominal_model)   
 ocp.parameter_values = np.array([param_l_nom])
@@ -286,19 +286,21 @@ B_m = np.array([
 # New simulation using the residual model
 nominal_model = export_my_augmented_pendulum_ode_model_with_discrete_rk4(Ts_st, black_box=True)
 
-real_model = export_pendulum_ode_model_with_discrete_rk4(Ts_st)
+real_model = export_pendulum_ode_model_actuation()
 
-ocp = export_augmented_ocp_cartpendulum_discrete(N_horizon, Tf, nominal_model)   
+ocp = export_ocp_cartpendulum_discrete(N_horizon, Tf, nominal_model)   
 ocp.parameter_values = np.array([param_l_nom])
-ocp.solver_options.integrator_type = "ERK"  # valid types: "ERK", "IRK", "GNSF"
+# ocp.solver_options.integrator_type = "ERK"  # valid types: "ERK", "IRK", "GNSF"
 ocp.solver_options.nlp_solver_tol_eq = 1e-2
 ocp_solver = AcadosOcpSolver(ocp, json_file="acados_ocp.json")
 
 # Define l4acados solver
-l4acados_solver = ResidualLearningMPC(
+l4acados_solver = ResidualLearningMPC(   
     ocp=ocp,
-    residual_model=res_model,
-    B = B_m,
+    residual_model=res_model,   
+    B = B_m
+    #use_cython = False,
+    #use_ocp_model = False 
 )
 
 sim = AcadosSim()
@@ -344,7 +346,7 @@ state_history = deque([x0_real[0:4]] * 3, maxlen=3)
 input_history = deque([np.zeros(1)] * 3, maxlen=3)
 x_next = x0_real.copy() # for the first iteration in order to set u_act as 0
 
-
+ref_type = 'swing_up'
 # Simulate the system with the residual model
 for i in range(N_sim):
     # Computation of the optimal control input with nominal model + residual model
@@ -355,6 +357,7 @@ for i in range(N_sim):
 
     l4acados_solver.set(0, "lbx", x_aug)
     l4acados_solver.set(0, "ubx", x_aug)
+    l4acados_solver.ocp_solver.set(0, "x", x_aug)
 
     # Update cost reference at each stage in the horizon
     if ref_type != 'swing_up':
@@ -364,10 +367,19 @@ for i in range(N_sim):
         # Optionally also set terminal cost reference (if used)
         l4acados_solver.set(l4acados_solver.N, "yref", np.array([p_ref[i+l4acados_solver.N], theta_ref[i+l4acados_solver.N], v_ref[i+l4acados_solver.N], omega_ref[i+l4acados_solver.N]]))
 
+    if ref_type != 'swing_up':
+        for stage in range(l4acados_solver.N):
+            stage_yref = np.array([p_ref[i+stage], theta_ref[i+stage], v_ref[i+stage], omega_ref[i+stage],0])
+            l4acados_solver.cost_set(stage, "yref", stage_yref)
+        # Optionally also set terminal cost reference (if used)
+        l4acados_solver.cost_set(l4acados_solver.N, "yref", np.array([p_ref[i+l4acados_solver.N], theta_ref[i+l4acados_solver.N], v_ref[i+l4acados_solver.N], omega_ref[i+l4acados_solver.N]]))
+
+    u0_diff = l4acados_solver.solve_for_x0(x_aug)
     l4acados_solver.solve()
 
     u0 = l4acados_solver.get(0, "u")
-
+    print("u0      = ", u0)
+    print("u0_diff = ", u0_diff)
     # Store the whole prediction horizon 
     for j in range(l4acados_solver.N):   
         p_predicted[i, j] = l4acados_solver.get(j, "x")[0]
@@ -432,7 +444,6 @@ print("omega_predicted shape is ", omega_predicted.shape)
 
 # Time vector
 time_vec = np.linspace(0, Tf / N_horizon * N_sim, N_sim + 1)
-import pdb; pdb.set_trace()
 # Plot the results
 plt.figure(figsize=(10, 6))
 plt.subplot(3, 1, 1)
@@ -453,8 +464,8 @@ plt.ylabel('position (m)')
 plt.legend()
 plt.grid()
 plt.subplot(3, 1, 2)
-plt.plot(time_vec[:-1], U_des, '-+', label='Actual control input (Force)')
-plt.plot(time_vec[:-1], X_nom_model[:, 4], '-+', label='Desired input(Force)')
+plt.plot(time_vec, X_real[:,4], '-+', label='Actual control input (Force)')
+plt.plot(time_vec[:-1], U_des, '-+', label='Desired input(Force)')
 plt.grid()
 plt.xlabel('time (s)')
 plt.ylabel('force (N)')
