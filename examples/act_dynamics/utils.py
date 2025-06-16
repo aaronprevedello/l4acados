@@ -5,7 +5,10 @@ import matplotlib.pyplot as plt
 import matplotlib.patches as patches
 import matplotlib.animation as animation
 
+import pandas as pd
 import torch, gpytorch
+from scipy.spatial.distance import pdist, squareform
+from sklearn.neighbors import NearestNeighbors
 
 # Plotting
 
@@ -284,22 +287,30 @@ def vertical_points_ref(Ts, N_points, pred_hor):
     time_ref = np.arange(0, Ts*(N_points+pred_hor), Ts)
 
     # Split indices into three segments, even if not equal length
-    idx_splits = np.array_split(np.arange(N_points+pred_hor), 6)
+    idx_splits = np.array_split(np.arange(N_points+pred_hor), 15)
 
     cart_ref = np.zeros(len(time_ref))
     theta_ref = np.zeros(len(time_ref))
     v_ref = np.zeros(len(time_ref))
     omega_ref = np.zeros(len(time_ref))
 
-    # Middle third: sin(2t)
+    cart_ref[idx_splits[0]] = -1
     cart_ref[idx_splits[1]] = -2
-
     cart_ref[idx_splits[2]] = -6
-
-    cart_ref[idx_splits[3]] = -2
-
+    cart_ref[idx_splits[3]] = -4
     cart_ref[idx_splits[4]] = 0
-    cart_ref[idx_splits[5]] = -1
+    cart_ref[idx_splits[5]] = 3
+    cart_ref[idx_splits[6]] = -3
+    cart_ref[idx_splits[7]] = 2
+    cart_ref[idx_splits[8]] = -1
+    cart_ref[idx_splits[9]] = 5
+    cart_ref[idx_splits[10]] = 0
+    cart_ref[idx_splits[11]] = -3
+    cart_ref[idx_splits[12]] = 0
+    cart_ref[idx_splits[13]] = -2
+    cart_ref[idx_splits[14]] = 3
+
+    v_ref = np.gradient(cart_ref)
 
     return time_ref, cart_ref, theta_ref, v_ref, omega_ref
 
@@ -307,18 +318,27 @@ def sinusoidal_ref(Ts, N_points, pred_hor):
     time_ref = np.arange(0, (N_points+pred_hor) * Ts, Ts)
 
     # Split indices into three segments, even if not equal length
-    idx_splits = np.array_split(np.arange(N_points+pred_hor), 3)
+    idx_splits = np.array_split(np.arange(N_points+pred_hor), 10)
 
-    cart_ref = np.sin(time_ref)
+    cart_ref = np.zeros(len(time_ref))
     theta_ref = np.zeros(N_points+pred_hor)
     # v_ref = np.zeros(N_points+pred_hor)
     # v_ref = np.gradient(cart_ref)
     omega_ref = np.zeros(N_points+pred_hor)
 
-    cart_ref[idx_splits[1]] = np.sin(3*time_ref[idx_splits[1]])
-    cart_ref[idx_splits[2]] = np.sin(7*time_ref[idx_splits[2]])
+    theta_ref[idx_splits[0]] = 2*np.sin(3*time_ref[idx_splits[0]])
+    theta_ref[idx_splits[1]] = 2*np.sin(time_ref[idx_splits[1]])
+    theta_ref[idx_splits[2]] = 2*np.sin(time_ref[idx_splits[2]])
+    theta_ref[idx_splits[3]] = 2*np.sin(time_ref[idx_splits[3]])
+    theta_ref[idx_splits[4]] = 2*np.sin(time_ref[idx_splits[4]])
+    theta_ref[idx_splits[5]] = 2*np.sin(time_ref[idx_splits[5]])
+    theta_ref[idx_splits[6]] = 2*np.sin(time_ref[idx_splits[6]])
+    theta_ref[idx_splits[7]] = 2*np.sin(time_ref[idx_splits[7]])
+    theta_ref[idx_splits[8]] = np.sin(time_ref[idx_splits[8]])
+    theta_ref[idx_splits[9]] = 1.1*np.sin(2*time_ref[idx_splits[9]])
 
     v_ref = np.gradient(cart_ref)
+    omega_ref = np.gradient(theta_ref)
 
     # Middle third: sin(2t)
     # cart_ref[idx_splits[1]] = 2
@@ -327,7 +347,80 @@ def sinusoidal_ref(Ts, N_points, pred_hor):
 
     return time_ref, cart_ref, theta_ref, v_ref, omega_ref
 
-def mix_ref(Ts, N_points, pred_hor):
+def mix_ref(Ts, N_points, pred_hor, seed=42):
+    np.random.seed(seed)
+    time_ref = np.arange(0, (N_points + pred_hor) * Ts, Ts)
+    total_len = len(time_ref)
+
+    # Define how many splits to make (more than before)
+    N_segments = 15
+    idx_splits = np.array_split(np.arange(total_len), N_segments)
+
+    # Preallocate references
+    cart_ref = np.zeros(total_len)
+    theta_ref = np.zeros(total_len)
+
+    # Define base patterns
+    def pattern_cart(i, t):
+        freq = 0.5 *(i + 1)
+        return 4 * np.sin(0.4* freq * t)
+
+    def pattern_theta(i, t):
+        if i % 4 == 0:
+            return np.pi * np.ones_like(t)
+        elif i % 4 == 1:
+            return 2 * np.sin(t)
+        elif i % 4 == 2:
+            return np.pi * np.sin(t)
+        else:
+            return np.zeros_like(t)
+
+    # Choose from base patterns randomly and assign to segments
+    base_indices = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+    repeated_indices = np.random.choice(base_indices, size=N_segments, replace=True)
+
+    for seg_idx, base_i in enumerate(repeated_indices):
+        idx = idx_splits[seg_idx]
+        t = time_ref[idx]
+        cart_ref[idx] = pattern_cart(base_i, t)
+        theta_ref[idx] = pattern_theta(base_i, t)
+
+    # Compute derivatives
+    v_ref = np.gradient(cart_ref, Ts)
+    omega_ref = np.gradient(theta_ref, Ts)
+
+    data_dict = {
+        "time_ref": time_ref.copy(),
+        "cart_ref": cart_ref.copy(),
+        "theta_ref": theta_ref.copy(),
+        "v_ref": v_ref.copy(),
+        "omega_ref": omega_ref.copy(),
+    }
+
+    np.savez("rich_mix_ref_expanded.npz", **data_dict)
+    return time_ref, cart_ref, theta_ref, v_ref, omega_ref
+
+def exploratory_ref(Ts, N_points, pred_hor):
+    time_ref = np.arange(0, (N_points+pred_hor) * Ts, Ts)
+    u_ref = np.zeros(len(time_ref))
+    # Split indices into three segments, even if not equal length
+    idx_splits = np.array_split(np.arange(N_points+pred_hor), 10)
+
+    u_ref[idx_splits[0]] = -4
+    u_ref[idx_splits[1]] = 40*np.sin(time_ref[idx_splits[1]]) 
+    u_ref[idx_splits[2]] = abs(30*np.sin(2*time_ref[idx_splits[2]]) )
+    u_ref[idx_splits[3]] = 20*np.sin(3*time_ref[idx_splits[3]]) 
+    u_ref[idx_splits[4]] = 10*np.sin(4*time_ref[idx_splits[4]]) 
+    u_ref[idx_splits[5]] = 4*np.sin(5*time_ref[idx_splits[5]]) 
+    u_ref[idx_splits[6]] = 4*np.sin(5*time_ref[idx_splits[6]]) 
+    u_ref[idx_splits[7]] = 4*np.sin(4*time_ref[idx_splits[7]]) 
+    u_ref[idx_splits[8]] = 4*np.sin(2*time_ref[idx_splits[8]]) 
+    u_ref[idx_splits[9]] = 4*np.sin(3*time_ref[idx_splits[9]]) 
+
+    return time_ref, u_ref
+
+
+def rich_mix_ref(Ts, N_points, pred_hor):
     time_ref = np.arange(0, (N_points+pred_hor) * Ts, Ts)
 
     # Split indices into three segments, even if not equal length
@@ -337,19 +430,29 @@ def mix_ref(Ts, N_points, pred_hor):
     theta_ref = np.zeros(len(time_ref))
     v_ref = np.zeros(len(time_ref))
     omega_ref = np.zeros(len(time_ref))
-    # Middle third: sin(2t)
-    cart_ref[idx_splits[1]] = -2
-    cart_ref[idx_splits[2]] = -6
-    cart_ref[idx_splits[3]] = -2
-    cart_ref[idx_splits[4]] = 0
-    cart_ref[idx_splits[5]] = -1
-    cart_ref[idx_splits[6]] = 0
+    
+    cart_ref[idx_splits[1]] = 4*np.sin(time_ref[idx_splits[1]])
+    cart_ref[idx_splits[2]] = 4*np.sin(2*time_ref[idx_splits[2]])
+    cart_ref[idx_splits[3]] = 4*np.sin(3*time_ref[idx_splits[3]])
+    cart_ref[idx_splits[4]] = 4*np.sin(4*time_ref[idx_splits[4]])
+    cart_ref[idx_splits[5]] = 4*np.sin(5*time_ref[idx_splits[5]])
+    cart_ref[idx_splits[6]] = np.zeros(len(time_ref[idx_splits[0]]))# 4*np.sin(5*time_ref[idx_splits[6]])
+    cart_ref[idx_splits[7]] = 4*np.sin(4*time_ref[idx_splits[7]])
+    cart_ref[idx_splits[8]] = 4*np.sin(2*time_ref[idx_splits[8]])
+    cart_ref[idx_splits[9]] = 4*np.sin(3*time_ref[idx_splits[9]])
 
-    cart_ref[idx_splits[7]] = 3*np.sin(time_ref[idx_splits[7]])
-    cart_ref[idx_splits[8]] = 2*np.sin(1.5*time_ref[idx_splits[8]])
-    cart_ref[idx_splits[9]] = 2*np.sin(time_ref[idx_splits[9]])
+    theta_ref[idx_splits[1]] = np.pi * np.ones(len(idx_splits[1]))
+    theta_ref[idx_splits[2]] = np.pi * np.ones(len(idx_splits[1]))
+    theta_ref[idx_splits[3]] = np.pi*np.sin(time_ref[idx_splits[6]])
+    theta_ref[idx_splits[4]] = np.pi*np.sin(time_ref[idx_splits[7]])
+    theta_ref[idx_splits[5]] = 0*np.ones(len(idx_splits[1]))
+    theta_ref[idx_splits[6]] = np.pi * np.ones(len(idx_splits[1]))
+    theta_ref[idx_splits[7]] = 0 * np.ones(len(idx_splits[1]))
+    theta_ref[idx_splits[8]] = 2*np.sin(time_ref[idx_splits[8]])
+    theta_ref[idx_splits[9]] = 2*np.sin(time_ref[idx_splits[9]])
 
     v_ref = np.gradient(cart_ref)
+    omega_ref = np.gradient(theta_ref)
     # cart_ref[idx_splits[10]] = np.sin(15*time_ref[idx_splits[10]])   
     data_dict = {
         "time_ref" : time_ref.copy(),
@@ -358,56 +461,8 @@ def mix_ref(Ts, N_points, pred_hor):
         "v_ref" : v_ref.copy(), 
         "omega_ref" : omega_ref.copy(),
     } 
-    np.savez("mix_ref.npz", **data_dict)
-    return time_ref, cart_ref, theta_ref, v_ref, omega_ref
-
-import numpy as np
-
-def rich_mix_ref(Ts, N_points, pred_hor):
-    time_ref = np.arange(0, (N_points + pred_hor) * Ts, Ts)
-    n_segments = 14
-    idx_splits = np.array_split(np.arange(N_points + pred_hor), n_segments)
-
-    cart_ref = np.zeros(len(time_ref))
-    theta_ref = np.zeros(len(time_ref))
-    omega_ref = np.zeros(len(time_ref))
-
-    # Cart reference: combina step, rampe, sinusoidi
-    cart_ref[idx_splits[0]]  = -3
-    cart_ref[idx_splits[1]]  = -5
-    cart_ref[idx_splits[2]]  = np.linspace(-5, 5, len(idx_splits[2]))  # rampa
-    cart_ref[idx_splits[3]]  = 2
-    cart_ref[idx_splits[4]]  = 3 * np.sin(2 * time_ref[idx_splits[4]])
-    cart_ref[idx_splits[5]]  = -3 * np.sin(3 * time_ref[idx_splits[5]])
-    cart_ref[idx_splits[6]]  = 4 * np.sin(0.5 * time_ref[idx_splits[6]])
-    cart_ref[idx_splits[7]]  = np.linspace(2, -2, len(idx_splits[7]))
-    cart_ref[idx_splits[8]]  = 0
-    cart_ref[idx_splits[9]]  = 1.5 * np.sin(4 * time_ref[idx_splits[9]])
-    cart_ref[idx_splits[10]] = 2 * np.sign(np.sin(2 * time_ref[idx_splits[10]]))  # onda quadra
-    cart_ref[idx_splits[11]] = np.random.uniform(-2, 2, len(idx_splits[11]))      # random walk morbido
-    cart_ref[idx_splits[12]] = 1.5 * np.cos(time_ref[idx_splits[12]])
-    cart_ref[idx_splits[13]] = 0.5 * np.sin(6 * time_ref[idx_splits[13]])
-
-    # Theta reference: comportamenti diversi per il pendolo
-    #theta_ref[idx_splits[0]]  = 0.2
-    #theta_ref[idx_splits[1]]  = -0.3
-    #theta_ref[idx_splits[2]]  = np.linspace(0, np.pi/4, len(idx_splits[2]))      # inclinazione crescente
-    #theta_ref[idx_splits[3]]  = 0
-    #theta_ref[idx_splits[4]]  = 0.5 * np.sin(3 * time_ref[idx_splits[4]])
-    #theta_ref[idx_splits[5]]  = 0.3 * np.cos(2 * time_ref[idx_splits[5]])
-    #theta_ref[idx_splits[6]]  = -0.4 * np.sin(1.5 * time_ref[idx_splits[6]])
-    #theta_ref[idx_splits[7]]  = 0.3 * np.sin(5 * time_ref[idx_splits[7]])
-    #theta_ref[idx_splits[8]]  = np.linspace(np.pi/6, -np.pi/6, len(idx_splits[8]))
-    #theta_ref[idx_splits[9]]  = 0.2 * np.sign(np.sin(2 * time_ref[idx_splits[9]])) # onde quadre
-    #theta_ref[idx_splits[10]] = np.random.uniform(-0.3, 0.3, len(idx_splits[10]))
-    #theta_ref[idx_splits[11]] = 0
-    #theta_ref[idx_splits[12]] = 0.4 * np.sin(3 * time_ref[idx_splits[12]])
-    #theta_ref[idx_splits[13]] = 0
-
-    # Derivate numeriche per ottenere velocità
-    v_ref = np.gradient(cart_ref, Ts)
-    #omega_ref = np.gradient(theta_ref, Ts)
-
+    print
+    np.savez("rich_mix_ref.npz", **data_dict)
     return time_ref, cart_ref, theta_ref, v_ref, omega_ref
 
 
@@ -452,89 +507,6 @@ def plot_references(time_ref, cart_ref, theta_ref, v_ref, omega_ref):
 
     plt.tight_layout()
     plt.show()
-
-#def visualize_inverted_pendulum(X_sim, U_sim, time_vec, REF=None):
-#    """
-#    Visualize an inverted pendulum on a cart in real-time.
-#
-#    Parameters:
-#    - X_sim: np.ndarray, shape (T, 4), state over time [x, theta, x_dot, theta_dot]
-#    - U_sim: np.ndarray, shape (T, 1) or (T,), control input (not used in plot)
-#    - time_vec: np.ndarray, shape (T,), time values
-#    - REF: np.ndarray, shape (6,) or (T, 6), optional reference signal
-#    """
-#    # Constants
-#    L = 0.5               # Pendulum length (m)
-#    cart_width = 0.3      # Cart width (m)
-#    cart_height = 0.2     # Cart height (m)
-#    wheel_radius = 0.05   # Wheel radius (m)
-#    pendulum_width = 0.8  # Not directly used
-#
-#    x = X_sim[:, 0]
-#    theta = X_sim[:, 1]
-#    time = time_vec
-#    T = len(time)
-#
-#    # Handle reference input
-#    if REF is None:
-#        REF = np.zeros((T, 6))
-#    elif REF.shape == (6,):
-#        REF = np.tile(REF, (T, 1))
-#    elif REF.shape[0] != T:
-#        raise ValueError("REF must have shape (6,) or (T, 6)")
-#
-#    # Set up the figure
-#    fig, ax = plt.subplots()
-#    ax.set_aspect('equal')
-#    ax.grid(True)
-#    ax.set_xlim([-6, 6])
-#    ax.set_ylim([-0.75, 0.75])
-#    ax.set_title('Inverted Pendulum on a Cart')
-#    ax.set_xlabel('X (m)')
-#    ax.set_ylabel('Y (m)')
-#
-#    # Initialize drawing elements
-#    cart_patch = patches.Rectangle((x[0] - cart_width/2, -cart_height/2),
-#                                   cart_width, cart_height, color=[0.2, 0.6, 1])
-#    wheel1_patch = patches.Ellipse((x[0] - cart_width/2 + 0.1 + wheel_radius, -cart_height/2 - wheel_radius),
-#                                   2*wheel_radius, wheel_radius, color='k')
-#    wheel2_patch = patches.Ellipse((x[0] + cart_width/2 - 0.1 - wheel_radius, -cart_height/2 - wheel_radius),
-#                                   2*wheel_radius, wheel_radius, color='k')
-#    pendulum_line, = ax.plot([], [], 'r', linewidth=3)
-#    cart_ref_marker, = ax.plot([], [], 'gx', markersize=10, linewidth=2)
-#    pendulum_ref_marker, = ax.plot([], [], 'bx', markersize=10, linewidth=2)
-#    timestamp_text = ax.text(-3.8, 0.65, '', fontsize=12, fontweight='bold', color='k')
-#
-#    # Add patches to the axes
-#    ax.add_patch(cart_patch)
-#    ax.add_patch(wheel1_patch)
-#    ax.add_patch(wheel2_patch)
-#
-#    # Frame update function
-#    def update_frame(k):
-#        cart_patch.set_xy((x[k] - cart_width / 2, -cart_height / 2))
-#        wheel1_patch.center = (x[k] - cart_width/2 + 0.1 + wheel_radius, -cart_height/2 - wheel_radius)
-#        wheel2_patch.center = (x[k] + cart_width/2 - 0.1 - wheel_radius, -cart_height/2 - wheel_radius)
-#
-#        px = x[k] - L * np.sin(theta[k])
-#        py = L * np.cos(theta[k])
-#        pendulum_line.set_data([x[k], px], [0, py])
-#
-#        cart_ref_marker.set_data(REF[k, 0], 0)
-#        pendulum_ref_marker.set_data(REF[k, 0] - L * np.sin(REF[k, 1]),
-#                                    L * np.cos(REF[k, 1]))
-#
-#        timestamp_text.set_text(f'Time: {time[k]:.2f} s')
-#
-#        return (cart_patch, wheel1_patch, wheel2_patch,
-#                pendulum_line, cart_ref_marker, pendulum_ref_marker, timestamp_text)
-#
-#    # Create and display animation
-#    ani = animation.FuncAnimation(fig, update_frame, frames=T, interval=1000 * np.mean(np.diff(time)),
-#                                  blit=True, repeat=False)
-#
-#    plt.show()
-
 
 def create_gp_input_from_npz(filenames):
     # filenames = ["gp_data01.npz", "gp_data02.npz", "gp_data03.npz"]
@@ -681,3 +653,149 @@ def build_augmented_state(state_hist, input_hist):
     u_k2    = input_hist[-3]
     x_aug = np.concatenate([x_k, x_k1[0:2], u_k1, x_k2[0:2], u_k2])  # Only x, theta and inputs from past
     return x_aug
+
+def load_gp_data_from_csv(sim_file, n_outputs):
+    """
+    Loads data from the specified CSV files and returns the content as NumPy arrays.
+
+    Parameters:
+    - sim_file (str): Path to the CSV file with X_sim and GP targets.
+    - gp_file (str): Path to the CSV file with X_gp and GP targets.
+
+    Returns:
+    - X_sim (ndarray): State trajectory from simulation (without last step).
+    - X_gp (ndarray): GP input states and features.
+    - Y_gp (ndarray): GP targets [Δp, Δθ, Δv, Δω].
+    """
+    # Load data from CSV
+    data = np.loadtxt(sim_file, delimiter=',', skiprows=1)
+
+    # Assume targets are always in the last noutputs columns
+    X = data[:, :-n_outputs]
+    Y = data[:, -n_outputs:]  
+    
+    # Load CSV and convert to tensor
+    X = torch.tensor(X, dtype=torch.float)
+    Y = torch.tensor(Y, dtype=torch.float)
+
+    return X, Y
+
+def filter_dataset(X, Y, min_distance=1e-1):
+
+    print("X before filtering is of shape ", X.shape)
+    print("Y before filtering is of shape ", Y.shape)
+
+    # Use NearestNeighbors to find neighbors within the distance
+    nbrs = NearestNeighbors(radius=min_distance, algorithm='ball_tree')
+    print("LEN NBRS ", (nbrs))
+    nbrs.fit(X)
+    radii_neighbors = nbrs.radius_neighbors(X, return_distance=False)
+
+    # Greedy filtering: keep first point, remove others in its neighborhood
+    keep_mask = torch.ones(len(X), dtype=torch.bool)
+
+    for i in range(len(X)):
+        if keep_mask[i]:
+            neighbors = radii_neighbors[i]
+            # Mark all neighbors (except itself) for removal
+            for j in neighbors:
+                if j != i:
+                    keep_mask[j] = False
+
+    X_filtered = X[keep_mask]
+    Y_filtered = Y[keep_mask]
+
+    X_sim_and_targets = np.hstack([X_filtered, Y_filtered])
+    np.savetxt("X_sim_filtered.csv", X_sim_and_targets, delimiter=',', header='x1,x2,x3,x4,u,Y_p,Y_theta,Y_v,Y_w', comments='')
+
+    print("X after filtering is of shape ", X_filtered.shape)
+    print("Y after filtering is of shape ", Y_filtered.shape)
+
+    return X_filtered, Y_filtered
+
+def check_cov_matrix(train_inputs):
+    print("Computing rank")
+    kernel = gpytorch.kernels.RBFKernel(batch_shape=torch.Size([4]))
+    K = kernel(train_inputs, train_inputs).evaluate()
+    rank = torch.linalg.matrix_rank(K)
+    print("Shape of K matrix is ", K.shape)
+    # Check se è simmetrica (deve esserlo)
+    for i in range(K.shape[0]):
+        print("Matrice simmetrica? ", torch.allclose(K[i,:,:], K[i,:,:].T, atol=1e-5))
+    
+    # Prova la decomposizione di Cholesky (fallisce se non è PD)
+    print("Trying Cholesky decomposition...")
+    try:
+        L = torch.linalg.cholesky(K)
+        print("Matrice positiva definita ✅")
+    except RuntimeError:
+        print("Matrice NON positiva definita ❌")
+    
+    print(rank, "/", K.size(-1))  # full rank?
+    
+    _, unique_indices = torch.unique(train_inputs, dim=0, return_inverse=True)
+    print(f"dimensione train input {train_inputs.size(0)}\n unique indices {len(unique_indices)}")
+    if len(unique_indices) < train_inputs.size(0):
+        print("Ci sono dati duplicati ⚠️")
+
+def augment_csv_by_column_variation(input_csv_path, output_csv_path, column_index, values):
+    """
+    Duplica ogni riga del CSV (escluso l'header) variando un solo elemento (colonna).
+    
+    Args:
+        input_csv_path (str): Percorso del file CSV di input.
+        output_csv_path (str): Percorso dove salvare il nuovo file CSV.
+        column_index (int): Indice della colonna da modificare (0-based).
+        values (list or array): Valori da assegnare alla colonna modificata.
+    """
+    # Carica il file CSV con header
+    df = pd.read_csv(input_csv_path)
+
+    # Salva separatamente l'intestazione
+    header = df.columns
+    data = df.copy()
+
+    # Lista per le righe duplicate
+    augmented_rows = []
+
+    # Duplica ogni riga e modifica la colonna specificata
+    for _, row in data.iterrows():
+        for val in values:
+            new_row = row.copy()
+            new_row.iloc[column_index] = val
+            augmented_rows.append(new_row)
+
+    # Crea il DataFrame finale
+    df_augmented = pd.DataFrame(augmented_rows, columns=header)
+
+    # Salva il file CSV con header
+    df_augmented.to_csv(output_csv_path, header=True, index=False)
+
+def get_SOD(self, X, Y, threshold, flg_permutation=False):
+    """
+    Returns the SOD points with an online procedure
+    SOD: most importants subset of data
+    """
+    print('\nSelection of the inducing inputs...')
+    # get number of samples
+    num_samples = X.shape[0]
+    # init the set of inducing inputs with the first sample
+    SOD = X[0:1,:]
+    inducing_inputs_indices = [0]
+    # get a permuation of the inputs
+    # perm_indices = torch.arange(1,num_samples)
+    perm_indices = range(1,num_samples)
+    if flg_permutation:
+        perm_indices = perm_indices[torch.randperm(num_samples-1)]
+    # iterate all the samples
+    for sample_index in perm_indices:
+        # get the estimate 
+        _, var, _ = self.get_estimate(X[inducing_inputs_indices,:], Y[inducing_inputs_indices,:], X[sample_index:sample_index+1,:])
+        if torch.sqrt(var)>=threshold:
+            SOD = torch.cat([SOD,X[sample_index:sample_index+1,:]],0)
+            inducing_inputs_indices.append(sample_index)
+        # else:
+        #     print('torch.sqrt(var) = ',torch.sqrt(var))
+        #     print('threshold = ',threshold)
+    print('Shape inducing inputs selected:', SOD.shape)
+    return inducing_inputs_indices

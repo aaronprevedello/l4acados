@@ -76,7 +76,8 @@ plt.figure(figsize=(10, 6))
 plt.subplot(2, 1, 1)
 for i in [0]:
     plt.plot(T, X[:, i], label=f"x[{i}]")
-plt.plot(T, cart_ref[:len(T)], label= "cart reference")
+if args.ref is not None:
+    plt.plot(T, cart_ref[:len(T)], label= "cart reference")
 plt.xlabel("Tempo [s]")
 plt.ylabel("Posizione [m]")
 plt.title("Cart Position")
@@ -87,7 +88,8 @@ plt.tight_layout()
 plt.subplot(2, 1, 2)
 for i in [1]:
     plt.plot(T, X[:, i], label=f"x[{i}]")
-plt.plot(T, theta_ref[:len(T)], label = "Pendulum references")
+if args.ref is not None:
+    plt.plot(T, theta_ref[:len(T)], label = "Pendulum references")
 plt.xlabel("Tempo [s]")
 plt.ylabel("Posizione [rad]")
 plt.title("Angolo Pendolo")
@@ -117,8 +119,8 @@ plt.grid(True)
 plt.tight_layout()
 
 plt.figure(figsize=(10, 6))
-for i in [4]:
-    plt.plot(T, X[:, i], label=f"u_act")
+#for i in [4]:
+#    plt.plot(T, X[:, i], label=f"u_act")
 plt.plot(T, U, label = "u_des")
 plt.xlabel("Tempo [s]")
 plt.ylabel("Forza [N]")

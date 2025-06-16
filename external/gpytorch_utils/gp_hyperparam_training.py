@@ -3,6 +3,8 @@ import numpy as np
 import gpytorch
 import torch
 import random
+import matplotlib.pyplot as plt
+
 
 
 def generate_train_inputs_zoro(
@@ -168,10 +170,14 @@ def generate_train_outputs_at_inputs(
 
 
 def train_gp_model(
-    gp_model, torch_seed=None, training_iterations=200, learning_rate=0.1
+    gp_model, torch_seed=None, training_iterations=200, learning_rate=0.1, val_x=None, val_y=None, compute_val_loss=False
 ):
     if torch_seed is not None:
         torch.manual_seed(torch_seed)
+
+    train_losses = []
+    if compute_val_loss:
+        val_losses = []
 
     likelihood = gp_model.likelihood
     train_x = gp_model.train_inputs[0]
@@ -193,10 +199,14 @@ def train_gp_model(
     num_loss_below_threshold = 0
 
     for i in range(training_iterations):
+        gp_model.train()
+        likelihood.train()
         optimizer.zero_grad()
-        output = likelihood(gp_model(train_x))
+        output = (gp_model(train_x))
         loss = -mll(output, train_y.reshape((train_y.numel(),)))
 
+        loss = loss.mean() # added by Aaron because output of inducingpointsgp is a vector
+        #import pdb;pdb.set_trace() # aggiunto da me !!!!!!
         num_loss_below_threshold = (
             num_loss_below_threshold + 1 if abs(loss - prev_loss) < 5e-4 else 0
         )
@@ -208,15 +218,37 @@ def train_gp_model(
         prev_loss = loss
 
         loss.backward()
-        if (i + 1) % 20 == 0:
-            print("Iter %d/%d - Loss: %.3f" % (i + 1, training_iterations, loss.item()))
-
+        
         optimizer.step()
+        if (i + 1) % 20 == 0:
+                    print("Iter %d/%d - Loss: %.3f" % (i + 1, training_iterations, loss.item()))
+                    train_losses.append(loss.item())
+                    if compute_val_loss and val_x is not None and val_y is not None:
+                                    val_loss = compute_gp_val_loss(gp_model, likelihood, val_x, val_y)
+                                    print(f" - Val Loss: {val_loss:.3f}")
+                                    val_losses.append(val_loss.item())
+                    else:
+                                    print()
+
+    plt.figure()
+    plt.plot(np.arange(0, training_iterations, 20), train_losses, label="train loss")
+    if compute_val_loss:
+        plt.plot(np.arange(0, training_iterations, 20), val_losses, label="val loss")
+    plt.show()
 
     gp_model.eval()
     likelihood.eval()
     return gp_model, likelihood
 
+def compute_gp_val_loss(gp_model, likelihood, val_x, val_y):
+    gp_model.eval()
+    likelihood.eval()
+    with torch.no_grad(), gpytorch.settings.fast_pred_var():
+        preds = likelihood(gp_model(val_x))
+        mll = gpytorch.mlls.ExactMarginalLogLikelihood(likelihood, gp_model)
+        val_loss = -mll(preds, val_y.view(-1))
+        val_loss = val_loss.mean()
+        return val_loss
 
 def set_gp_param_value(gp_model, name: str, value: torch.Tensor):
     constraint = gp_model.constraint_for_parameter_name(name)
