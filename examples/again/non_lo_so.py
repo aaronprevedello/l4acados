@@ -54,7 +54,7 @@ train_flag = False
 ref_type = 'swing_up'
 param_tau = 0.05
 param_l_nom = 0.5
-param_l_real = 0.65
+param_l_real = 0.5
 
 ts_real = 0.025 # [s] real simulation integration step
 integration_steps_ratio = 1 # ratio between ts_real and ts_mpc
@@ -148,8 +148,8 @@ x0 = np.array([0.0, np.pi, 0.0, 0.0])
 x_current = x0.copy()
 
 sim = AcadosSim()
-sim.model = export_pendulum_ode_model()
-sim.parameter_values = np.array([param_l_real])
+sim.model = export_pendulum_ode_model_actuation()
+sim.parameter_values = np.array([param_l_real, param_tau])
 sim.solver_options.integrator_type = "ERK"
 sim.solver_options.T = 0.025
 
@@ -179,6 +179,14 @@ for i in range(sim_steps):
 
     l4acados_solver.solve()
     print("OCP solved succesfully")
+
+    # Print ocp solver statistics
+    print(
+      f"CPT: {l4acados_solver.ocp_solver.get_stats('time_tot')*1000:.2f}ms |\n "
+      f"Shooting (linearization): {l4acados_solver.ocp_solver.get_stats('time_lin')*1000:.2f}ms |\n "
+      f"QP Solve: {l4acados_solver.ocp_solver.get_stats('time_qp_solver_call')*1000:.2f}ms |\n "
+      f"Opt. Crit: {l4acados_solver.ocp_solver.get_stats('residuals')[0]:.3e} |\n "
+      f"SQP Iter: {l4acados_solver.ocp_solver.get_stats('sqp_iter')}")
 
     # Get optimal control input 
     u0 = l4acados_solver.get(0, "u")
