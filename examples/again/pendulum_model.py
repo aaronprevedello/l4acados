@@ -7,73 +7,73 @@ from scipy.linalg import block_diag
 from casadi import SX, vertcat, sin, cos
 from acados_template import AcadosModel
 
-#def export_pendulum_ode_model_actuation(black_box = False) -> AcadosModel:
-#    model_name = 'pendulum'
-#    ode_flag = 0 if black_box else 1
-#
-#    # constants
-#    m_cart = 1.0   # mass of the cart [kg]
-#    m = 0.1        # mass of the ball [kg]
-#    g = 9.81       # gravity constant [m/s^2]
-#
-#    # pendulum length as parameter
-#    l_param = SX.sym('l')  # symbolic parameter
-#    tau     = SX.sym('tau')  # time constant for control input
-#
-#    # set up states & controls
-#    x1      = SX.sym('x1')
-#    theta   = SX.sym('theta')
-#    v1      = SX.sym('v1')
-#    dtheta  = SX.sym('dtheta')
-#    u_act   = SX.sym('u_act')
-#
-#    x = vertcat(x1, theta, v1, dtheta, u_act)
-#
-#    F = SX.sym('F')
-#    u = vertcat(F)
-#
-#    # xdot
-#    x1_dot     = SX.sym('x1_dot')
-#    theta_dot  = SX.sym('theta_dot')
-#    v1_dot     = SX.sym('v1_dot')
-#    dtheta_dot = SX.sym('dtheta_dot')
-#    u_act_dot  = SX.sym('u_act_dot')
-#
-#    xdot = vertcat(x1_dot, theta_dot, v1_dot, dtheta_dot, u_act_dot)
-#
-#    # parameters vector (only l for now)
-#    p = vertcat(l_param, tau)
-#
-#    # dynamics
-#    cos_theta = cos(theta)
-#    sin_theta = sin(theta)
-#    denominator = m_cart + m - m * cos_theta**2
-#
-#    f_expl = vertcat(
-#        v1,
-#        dtheta,
-#        ode_flag*(-m * l_param * sin_theta * dtheta**2 + m * g * cos_theta * sin_theta + u_act) / denominator,
-#        ode_flag*(-m * l_param * cos_theta * sin_theta * dtheta**2 + u_act * cos_theta + (m_cart + m) * g * sin_theta) / (l_param * denominator),
-#        (1 / tau ) * (u - u_act),  # u_act is the previous control input
-#    )
-#
-#    f_impl = xdot - f_expl
-#
-#    model = AcadosModel()
-#    model.f_impl_expr = f_impl
-#    model.f_expl_expr = f_expl
-#    model.x = x
-#    model.xdot = xdot
-#    model.u = u
-#    model.p = p
-#    model.name = model_name
-#
-#    # Meta info
-#    model.x_labels = ['$x$ [m]', r'$\theta$ [rad]', '$v$ [m/s]', r'$\dot{\theta}$ [rad/s]']
-#    model.u_labels = ['$F$']
-#    model.t_label = '$t$ [s]'
-#
-#    return model
+def export_pendulum_ode_model_actuation(black_box = False) -> AcadosModel:
+    model_name = 'pendulum'
+    ode_flag = 0 if black_box else 1
+
+    # constants
+    m_cart = 1.0   # mass of the cart [kg]
+    m = 0.1        # mass of the ball [kg]
+    g = 9.81       # gravity constant [m/s^2]
+
+    # pendulum length as parameter
+    l_param = SX.sym('l')  # symbolic parameter
+    tau     = SX.sym('tau')  # time constant for control input
+
+    # set up states & controls
+    x1      = SX.sym('x1')
+    theta   = SX.sym('theta')
+    v1      = SX.sym('v1')
+    dtheta  = SX.sym('dtheta')
+    u_act   = SX.sym('u_act')
+
+    x = vertcat(x1, theta, v1, dtheta, u_act)
+
+    F = SX.sym('F')
+    u = vertcat(F)
+
+    # xdot
+    x1_dot     = SX.sym('x1_dot')
+    theta_dot  = SX.sym('theta_dot')
+    v1_dot     = SX.sym('v1_dot')
+    dtheta_dot = SX.sym('dtheta_dot')
+    u_act_dot  = SX.sym('u_act_dot')
+
+    xdot = vertcat(x1_dot, theta_dot, v1_dot, dtheta_dot, u_act_dot)
+
+    # parameters vector (only l for now)
+    p = vertcat(l_param, tau)
+
+    # dynamics
+    cos_theta = cos(theta)
+    sin_theta = sin(theta)
+    denominator = m_cart + m - m * cos_theta**2
+
+    f_expl = vertcat(
+        v1,
+        dtheta,
+        ode_flag*(-m * l_param * sin_theta * dtheta**2 + m * g * cos_theta * sin_theta + u_act) / denominator,
+        ode_flag*(-m * l_param * cos_theta * sin_theta * dtheta**2 + u_act * cos_theta + (m_cart + m) * g * sin_theta) / (l_param * denominator),
+        (1 / tau ) * (u - u_act),  # u_act is the previous control input
+    )
+
+    f_impl = xdot - f_expl
+
+    model = AcadosModel()
+    model.f_impl_expr = f_impl
+    model.f_expl_expr = f_expl
+    model.x = x
+    model.xdot = xdot
+    model.u = u
+    model.p = p
+    model.name = model_name
+
+    # Meta info
+    model.x_labels = ['$x$ [m]', r'$\theta$ [rad]', '$v$ [m/s]', r'$\dot{\theta}$ [rad/s]']
+    model.u_labels = ['$F$']
+    model.t_label = '$t$ [s]'
+
+    return model
 
 def export_pendulum_ode_model() -> AcadosModel:
     model_name = 'pendulum'
@@ -608,184 +608,112 @@ def export_ocp_cartpendulum(N, T, model, integrator_type, only_lower_bounds=Fals
 
     return ocp
 
-#def export_ocp_cartpendulum_actuation(N, T, only_lower_bounds=False, **model_kwargs):
-#    # initial state: cart at 0, pendulum upright
-#    x0 = np.array([0.0, np.pi, 0.0, 0.0, 0.0])
-#
-#    # input bounds: force
-#    lb_u = -50.0
-#    ub_u = 50.0
-#
-#    # cost weights
-#    Q = np.diagflat([30.0, 20.0, 0.1, 0.1])  # [cart, theta, cart_vel, omega]
-#    R = np.array([[0.4]])                    # [u]
-#    Qe = np.diagflat([10.0, 10.0, 0.1, 0.1])  # terminal cost
-#
-#    dt = T / N
-#    model = export_pendulum_ode_model_actuation()
-#
-#    # define OCP
-#    ocp = AcadosOcp()
-#    ocp.model = model
-#    ocp.model.p = model.p
-#    ocp.dims.N = N
-#
-#    nx = model.x.shape[0]
-#    nu = model.u.shape[0]
-#    ny = 4 + nu
-#    ny_e = nx
-#
-#    ocp.dims.nx = nx
-#    ocp.dims.nu = nu
-#    ocp.dims.np = model.p.shape[0] if hasattr(model, "p") and isinstance(model.p, SX) else 0
-#    ocp.dims.ny = ny
-#    ocp.dims.ny_e = ny_e
-#    ocp.dims.ny_0 = ny
-#
-#    ocp.cost.cost_type = "NONLINEAR_LS"
-#    ocp.cost.cost_type_e = "NONLINEAR_LS"
-#    ocp.cost.cost_type_0 = "NONLINEAR_LS"
-#    
-#    ocp.model.cost_y_expr = vertcat(model.x[0:4], model.u)    
-#    ocp.model.cost_y_expr_e = model.x[0:4]
-#    
-#    ocp.cost.W = block_diag(Q, R)
-#    ocp.cost.W_0 = ocp.cost.W 
-#    ocp.model.cost_y_expr_0 = vertcat(*[model.x[0], model.x[1], model.x[2], model.x[3], model.u])  
-#    ocp.cost.yref_0 = np.zeros((int(ocp.model.cost_y_expr_0.shape[0]),))
-#    ocp.cost.yref = np.zeros((5,))
-#    ocp.cost.yref_e = np.zeros((4,))
-#    ocp.cost.W_e = Qe
-#   
-#    # constraints
-#    ocp.constraints.constr_type = "BGH"
-#    ocp.constraints.lbu = np.array([lb_u])
-#    ocp.constraints.ubu = np.array([ub_u])
-#    ocp.constraints.idxbu = np.array(range(nu))
-#    ocp.constraints.x0 = x0
-#
-#    # constraints on cart position
-#    ocp.constraints.idxbx = np.array([0])
-#    ocp.constraints.lbx = np.array([-10.0])
-#    ocp.constraints.ubx = np.array([10.0])
-#
-#    # nonlinear constraints
-#    if hasattr(model, "con_h_expr") and model.con_h_expr is not None:
-#        nh = model.con_h_expr.shape[0]
-#        ocp.dims.nh = nh
-#        ocp.model.con_h_expr = model.con_h_expr
-#
-#        inf = 1e6
-#        if only_lower_bounds:
-#            ocp.constraints.lh = np.zeros((nh,))
-#            ocp.constraints.uh = np.full((nh,), inf)
-#        else:
-#            ocp.constraints.lh = -np.ones((nh,)) * inf  # or your actual lower bounds
-#            ocp.constraints.uh = np.ones((nh,)) * inf   # or your actual upper bounds
-#    else:
-#        ocp.dims.nh = 0
-#        # Do NOT set lh, uh, or con_h_expr if nh == 0
-#
-#    # solver options
-#    ocp.solver_options.integrator_type = "ERK"
-#    ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"  # ‘PARTIAL_CONDENSING_HPIPM’, ‘FULL_CONDENSING_QPOASES’, 
-#    #‘FULL_CONDENSING_HPIPM’, ‘PARTIAL_CONDENSING_QPDUNES’, ‘PARTIAL_CONDENSING_OSQP’, ‘FULL_CONDENSING_DAQP’
-#    ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
-#    ocp.solver_options.nlp_solver_type = "SQP"
-#    ocp.solver_options.tf = T
-#    ocp.solver_options.tol = 1e-2
-#
-#
-#
-#    return ocp
+def export_ocp_cartpendulum_actuation(N, T, model, only_lower_bounds=False, **model_kwargs):
+    # initial state: cart at 0, pendulum upright
+    x0 = np.array([0.0, np.pi, 0.0, 0.0, 0.0])
 
-#def export_ocp_cartpendulum(N, T, only_lower_bounds=False, **model_kwargs):
-#    # initial state: cart at 0, pendulum upright
-#    x0 = np.array([0.0, np.pi, 0.0, 0.0])
-#    print("WROOOOONGGGG ")
-#    import pdb; pdb.set_trace()
-#    # input bounds: force
-#    lb_u = -50.0
-#    ub_u = 50.0
-#
-#    # cost weights
-#    Q = np.diagflat([10.0, 10.0, 0.1, 0.1])  # [cart, theta, cart_vel, omega]
-#    R = np.array([[0.5]])                    # [u]
-#    Qe = np.diagflat([10.0, 10.0, 0.1, 0.1])  # terminal cost
-#
-#    dt = T / N
-#    model = export_pendulum_ode_model()
-#
-#    # define OCP
-#    ocp = AcadosOcp()
-#    ocp.model = model
-#    ocp.model.p = model.p
-#    ocp.dims.N = N
-#
-#    nx = model.x.shape[0]
-#    nu = model.u.shape[0]
-#    ny = 4 + nu
-#    ny_e = nx
-#
-#    ocp.dims.nx = nx
-#    ocp.dims.nu = nu
-#    ocp.dims.np = model.p.shape[0] if hasattr(model, "p") and isinstance(model.p, SX) else 0
-#    ocp.dims.ny = ny
-#    ocp.dims.ny_e = ny_e
-#    ocp.dims.ny_0 = ny
-#
-#    ocp.cost.cost_type = "NONLINEAR_LS"
-#    ocp.cost.cost_type_e = "NONLINEAR_LS"
-#    ocp.cost.cost_type_0 = "NONLINEAR_LS"
-#    
-#    ocp.model.cost_y_expr = vertcat(model.x[0:4], model.u)    
-#    ocp.model.cost_y_expr_e = model.x[0:4]
-#    
-#    ocp.cost.W = block_diag(Q, R)
-#    ocp.cost.W_0 = ocp.cost.W 
-#    ocp.model.cost_y_expr_0 = vertcat(*[model.x[0], model.x[1], model.x[2], model.x[3], model.u])  
-#    ocp.cost.yref_0 = np.zeros((int(ocp.model.cost_y_expr_0.shape[0]),))
-#    ocp.cost.yref = np.zeros((5,))
-#    ocp.cost.yref_e = np.zeros((4,))
-#    ocp.cost.W_e = Qe
-#   
-#    # constraints
-#    ocp.constraints.constr_type = "BGH"
-#    ocp.constraints.lbu = np.array([lb_u])
-#    ocp.constraints.ubu = np.array([ub_u])
-#    ocp.constraints.idxbu = np.array(range(nu))
-#    ocp.constraints.x0 = x0
-#
-#    # constraints on cart position
-#    ocp.constraints.idxbx = np.array([0])
-#    ocp.constraints.lbx = np.array([-10.0])
-#    ocp.constraints.ubx = np.array([10.0])
-#
-#    # nonlinear constraints
-#    if hasattr(model, "con_h_expr") and model.con_h_expr is not None:
-#        nh = model.con_h_expr.shape[0]
-#        ocp.dims.nh = nh
-#        ocp.model.con_h_expr = model.con_h_expr
-#
-#        inf = 1e6
-#        if only_lower_bounds:
-#            ocp.constraints.lh = np.zeros((nh,))
-#            ocp.constraints.uh = np.full((nh,), inf)
-#        else:
-#            ocp.constraints.lh = -np.ones((nh,)) * inf  # or your actual lower bounds
-#            ocp.constraints.uh = np.ones((nh,)) * inf   # or your actual upper bounds
-#    else:
-#        ocp.dims.nh = 0
-#        # Do NOT set lh, uh, or con_h_expr if nh == 0
-#
-#    # solver options
-#    ocp.solver_options.integrator_type = "ERK"
-#    ocp.solver_options.qp_solver = "FULL_CONDENSING_HPIPM"  # ‘PARTIAL_CONDENSING_HPIPM’, ‘FULL_CONDENSING_QPOASES’, 
-#    #‘FULL_CONDENSING_HPIPM’, ‘PARTIAL_CONDENSING_QPDUNES’, ‘PARTIAL_CONDENSING_OSQP’, ‘FULL_CONDENSING_DAQP’
-#    ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
-#    ocp.solver_options.nlp_solver_type = "SQP"
-#    ocp.solver_options.tf = T
-#    ocp.solver_options.tol = 1e-2
-#
-#    return ocp
+    # input bounds: force
+    lb_u = -50.0
+    ub_u = 50.0
+
+    # cost weights
+    Q = np.diagflat([10.0, 10.0, 0.1, 0.1])  # [cart, theta, cart_vel, omega]
+    R = np.array([[0.3]])                    # [u]
+    Qe = np.diagflat([10.0, 10.0, 0.1, 0.1])  # terminal cost
+
+    dt = T / N
+
+    # define OCP
+    ocp = AcadosOcp()
+    ocp.model = model
+    ocp.model.p = model.p
+    ocp.dims.N = N
+
+    nx = model.x.shape[0]
+    nu = model.u.shape[0]
+    ny = 4 + nu
+    ny_e = nx
+
+    ocp.dims.nx = nx
+    ocp.dims.nu = nu
+    ocp.dims.np = model.p.shape[0] if hasattr(model, "p") and isinstance(model.p, SX) else 0
+    ocp.dims.ny = ny
+    ocp.dims.ny_e = ny_e
+    ocp.dims.ny_0 = ny
+
+    # ocp.cost.cost_type = "NONLINEAR_LS"
+    # ocp.cost.cost_type_e = "NONLINEAR_LS"
+    # ocp.cost.cost_type_0 = "NONLINEAR_LS"
+    # 
+    # ocp.model.cost_y_expr = vertcat(model.x[0:4], model.u)    
+    # ocp.model.cost_y_expr_e = model.x[0:4]
+    # 
+    # ocp.cost.W = block_diag(Q, R)
+    # ocp.cost.W_0 = ocp.cost.W 
+    # ocp.model.cost_y_expr_0 = vertcat(*[model.x[0], model.x[1], model.x[2], model.x[3], model.u])  
+    # ocp.cost.yref_0 = np.zeros((int(ocp.model.cost_y_expr_0.shape[0]),))
+    # ocp.cost.yref = np.zeros((5,))
+    # ocp.cost.yref_e = np.zeros((4,))
+    # ocp.cost.W_e = Qe
+
+    # cost
+    ocp.cost.cost_type = "LINEAR_LS"
+    ocp.cost.cost_type_e = "LINEAR_LS"
+
+    ocp.cost.W = block_diag(Q, R)
+    ocp.cost.W_0 = ocp.cost.W
+    ocp.cost.W_e = Qe
+
+    # Updated for nx = 5 (one more state), still tracking only first 4 states and 1 control input
+    ocp.cost.Vx = np.zeros((ny, nx))
+    ocp.cost.Vx[:4, :4] = np.eye(4)  # track only first 4 states
+
+    ocp.cost.Vu = np.zeros((ny, nu))
+    ocp.cost.Vu[4, 0] = 1.0  # control input
+
+    ocp.cost.Vx_e = np.zeros((ny_e, nx))
+    ocp.cost.Vx_e[:, :4] = np.eye(4)  # terminal cost on first 4 states
+
+    ocp.cost.yref = np.zeros((ny,))
+    ocp.cost.yref_e = np.zeros((ny_e,))
+   
+    # constraints
+    ocp.constraints.constr_type = "BGH"
+    ocp.constraints.lbu = np.array([lb_u])
+    ocp.constraints.ubu = np.array([ub_u])
+    ocp.constraints.idxbu = np.array(range(nu))
+    ocp.constraints.x0 = x0
+
+    # constraints on cart position
+    ocp.constraints.idxbx = np.array([0])
+    ocp.constraints.lbx = np.array([-10.0])
+    ocp.constraints.ubx = np.array([10.0])
+
+    # nonlinear constraints
+    if hasattr(model, "con_h_expr") and model.con_h_expr is not None:
+        nh = model.con_h_expr.shape[0]
+        ocp.dims.nh = nh
+        ocp.model.con_h_expr = model.con_h_expr
+
+        inf = 1e6
+        if only_lower_bounds:
+            ocp.constraints.lh = np.zeros((nh,))
+            ocp.constraints.uh = np.full((nh,), inf)
+        else:
+            ocp.constraints.lh = -np.ones((nh,)) * inf  # or your actual lower bounds
+            ocp.constraints.uh = np.ones((nh,)) * inf   # or your actual upper bounds
+    else:
+        ocp.dims.nh = 0
+        # Do NOT set lh, uh, or con_h_expr if nh == 0
+
+    # solver options
+    ocp.solver_options.integrator_type = "ERK"
+    ocp.solver_options.qp_solver = "PARTIAL_CONDENSING_HPIPM"  # ‘PARTIAL_CONDENSING_HPIPM’, ‘FULL_CONDENSING_QPOASES’, 
+    #‘FULL_CONDENSING_HPIPM’, ‘PARTIAL_CONDENSING_QPDUNES’, ‘PARTIAL_CONDENSING_OSQP’, ‘FULL_CONDENSING_DAQP’
+    ocp.solver_options.hessian_approx = "GAUSS_NEWTON"
+    ocp.solver_options.nlp_solver_type = "SQP"
+    ocp.solver_options.tf = T
+    ocp.solver_options.tol = 1e-2
+
+    return ocp
 
