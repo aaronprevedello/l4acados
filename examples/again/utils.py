@@ -762,3 +762,18 @@ def delete_json_files():
             print(f"Deleted: {file}")
         except Exception as e:
             print(f"Error deleting {file}: {e}")
+
+def open_npz_file(file_path):
+
+    if not os.path.exists(file_path):
+        raise FileNotFoundError(f'File {file_path} does not exist.')
+    
+    try:
+        data = np.load(file_path, allow_picke=True)
+        print(f'loaded {file_path} with keys: {list(data.keys())}')
+
+        return data
+    except Exception as e:
+        raise RuntimeError(f'Error loading {file_path}: {e}')
+    
+    

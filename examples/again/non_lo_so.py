@@ -40,7 +40,6 @@ from gpytorch_utils.gp_utils import (
     plot_gp_data,
     generate_grid_points,)
 
-
 from gpytorch import likelihoods
 from l4acados.models.pytorch_models.gpytorch_models.gpytorch_gp import (
     BatchIndependentMultitaskGPModel,
@@ -50,9 +49,9 @@ from l4acados.models.pytorch_models.gpytorch_models.gpytorch_gp import (
 from l4acados.models.pytorch_models.gpytorch_models.gpytorch_residual_model import (
     GPyTorchResidualModel,
 )
+
 train_flag = False
-ref_type = 'swing_up'
-param_tau = 0.05
+param_tau = 0.01    
 param_l_nom = 0.5
 param_l_real = 0.5
 
@@ -65,6 +64,15 @@ n_steps_mpc_horizon = int(time_horizon_mpc / ts_mpc) # number of steps in the mp
 simulation_time = 10 # [s] duration of the real simulation
 sim_steps = int(simulation_time / ts_real) # number of steps in the simulation
 
+# Define mapping between GP outputs and model states 
+B_m = np.array([
+    [ts_mpc/2, 0.0],   # ts_mpc/2
+    [0.0, ts_mpc/2],   # ts_mpc/2
+    [1.0, 0.0],
+    [0.0, 1.0]
+])
+
+# Nominal ocp model
 ocp = export_ocp_cartpendulum(n_steps_mpc_horizon, time_horizon_mpc, export_discrete_pendulum_ode_model(ts_mpc), "ERK")
 ocp.parameter_values = np.array([param_l_nom])
 ocp_solver  = AcadosOcpSolver(ocp, json_file='acados_ocp.json')
@@ -124,14 +132,6 @@ likelihood.eval()
 
 residual_model = GPyTorchResidualModel(gp_model)
 
-# Define mapping between GP outputs and model states 
-B_m = np.array([
-    [0, 0.0],
-    [0.0, 0],
-    [1.0, 0.0],
-    [0.0, 1.0]
-])
-
 # Define l4acados solver 
 l4acados_solver = l4acados.controllers.ResidualLearningMPC(
     ocp=ocp,
@@ -147,16 +147,17 @@ l4acados_solver = l4acados.controllers.ResidualLearningMPC(
 x0 = np.array([0.0, np.pi, 0.0, 0.0])
 x_current = x0.copy()
 
+# Simulation setup
 sim = AcadosSim()
-sim.model = export_pendulum_ode_model_actuation()
+sim.model = export_pendulum_ode_model_double_delay(ts_real)
 sim.parameter_values = np.array([param_l_real, param_tau])
 sim.solver_options.integrator_type = "ERK"
-sim.solver_options.T = 0.025
+sim.solver_options.T = ts_real # real simulation step
 
 sim_solver = AcadosSimSolver(sim, json_file = "acados_sim.json")
 
-x0 = np.array([0, np.pi, 0, 0])
-x_current = x0.copy()
+#x0 = np.array([0, np.pi, 0, 0])
+#x_current = x0.copy()
 sim_solver.set("x", x0)
 
 X_sim = [x0.copy()]
@@ -164,21 +165,75 @@ U_sim = []
 next_pred_state = []
 u0 = np.zeros((ocp.dims.nu,))  # initial control input
 
+# Definition of the manual discrete integrator
+lin_disc_dyn_bar, f_disc_dyn_bar = export_discrete_integrator(export_pendulum_ode_model_double_delay(ts_real))
+# f_disc_dyn_bar = cas.Function("f_disc_dyn_bar", [simulation_model.x, simulation_model.u, simulation_model.p], [simulation_model.x_next_lin]on
+x0_actuation_dyn = np.array([0.0, np.pi, 0.0, 0.0, 0.0, 0.0])
+X_parallel = [x0_actuation_dyn.copy()]
+U_parallel = []
 
-import random
+#for i in range(sim_steps):
+#
+#    print("---------------------------------------------------\n\n\n")
+#    print("Iteration: ", i)
+#    print("x_current before solving OCP: ", x_current)
+#
+#    # Set current state in the OCP solver 
+#    #l4acados_solver.set(0, "x", x_current)
+#    l4acados_solver.set(0, "lbx", x_current)
+#    l4acados_solver.set(0, "ubx", x_current)
+#
+#    l4acados_solver.solve()
+#    print("OCP solved succesfully")
+#
+#    # Print ocp solver statistics
+#    print(
+#      f"CPT: {l4acados_solver.ocp_solver.get_stats('time_tot')*1000:.2f}ms |\n "
+#      f"Shooting (linearization): {l4acados_solver.ocp_solver.get_stats('time_lin')*1000:.2f}ms |\n "
+#      f"QP Solve: {l4acados_solver.ocp_solver.get_stats('time_qp_solver_call')*1000:.2f}ms |\n "
+#      f"Opt. Crit: {l4acados_solver.ocp_solver.get_stats('residuals')[0]:.3e} |\n "
+#      f"SQP Iter: {l4acados_solver.ocp_solver.get_stats('sqp_iter')}")
+#
+#    # Get optimal control input 
+#    u0 = l4acados_solver.get(0, "u")
+#    print("Computed optimal control input u0: ", u0)
+#
+#    pred_state = l4acados_solver.get(1, "x")
+#    print("next predicted state is ", pred_state)
+#
+#    sim_solver.set("x", x_current)
+#    sim_solver.set("u", u0)
+#    sim_solver.solve()
+#
+#    x_next = sim_solver.get("x")
+#    x_current = x_next.copy()
+#
+#    X_sim.append(x_next.copy())
+#    U_sim.append(u0)
+
+X_sim = np.array(X_sim[:-1])
+U_sim = np.array(U_sim)
+
+x_current = x0_actuation_dyn.copy()
+
+# Empty the folder where live data are stored
+save_dir = "grafici"
+for file in os.listdir(save_dir):
+    file_path = os.path.join(save_dir, file)
+    if os.path.isfile(file_path):
+        os.remove(file_path)
+
+# Simulation loop
 for i in range(sim_steps):
 
     print("---------------------------------------------------\n\n\n")
-    print("Iteration: ", i)
-    print("x_current before solving OCP: ", x_current)
+    print(f"Iteration: {i}/{sim_steps}")
+    print("Actual state is ", x_current)
 
-    # Set current state in the OCP solver 
-    #l4acados_solver.set(0, "x", x_current)
-    l4acados_solver.set(0, "lbx", x_current)
-    l4acados_solver.set(0, "ubx", x_current)
+    l4acados_solver.set(0, "lbx", x_current[0:4])
+    l4acados_solver.set(0, "ubx", x_current[0:4])
 
     l4acados_solver.solve()
-    print("OCP solved succesfully")
 
     # Print ocp solver statistics
     print(
@@ -192,24 +247,30 @@ for i in range(sim_steps):
     u0 = l4acados_solver.get(0, "u")
     print("Computed optimal control input u0: ", u0)
 
+    # Get the predicted state from the ocp
     pred_state = l4acados_solver.get(1, "x")
     print("next predicted state is ", pred_state)
 
-    rndm_number = random.random()*20 - 10
-    sim_solver.set("x", x_current)
-    sim_solver.set("u", u0)
-    sim_solver.solve()
-
-    x_next = sim_solver.get("x")
+    # Discrete manual integrator 
+    x_next = f_disc_dyn_bar(x_current, u0, np.array([param_l_real, param_tau])).full().flatten()
     x_current = x_next.copy()
 
-    X_sim.append(x_next.copy())
-    U_sim.append(u0)
+    X_parallel.append(x_current.copy())
+    U_parallel.append(u0)
 
-X_sim = np.array(X_sim[:-1])
-U_sim = np.array(U_sim)
+    # Generate data for live plotting
+    data_dict = {
+            "i": i*ts_real,
+            "x": x_current.copy(),
+            "u": u0.copy(),
+        }
+    # Save data in the directory
+    np.savez(os.path.join(save_dir, f"step_{i:03d}.npz"), **data_dict)
 
-np.savez("sim_data.npz", X_sim=X_sim, U_sim=U_sim)
+X_parallel = np.array(X_parallel[:-1])
+U_parallel = np.array(U_parallel)
+
+np.savez("control_simulation.npz", X_sim=X_sim, U_sim=U_sim)
 
 # Plot trajectories
 # Time vector of the simulation for plotting
@@ -218,30 +279,55 @@ time_vec = np.linspace(0, simulation_time, sim_steps)
 plt.figure(figsize=(10, 6))
 # First subplot
 plt.subplot(3, 1, 1)
-plt.plot(time_vec, X_sim[:, 0], label='Cart Position')
-plt.plot(time_vec, X_sim[:, 1], label='Pendulum Angle')
+#plt.plot(time_vec, X_sim[:, 0], label='Cart Position')
+#plt.plot(time_vec, X_sim[:, 1], label='Pendulum Angle')
+plt.plot(time_vec, X_parallel[:, 0], label='Discrete cart position')
+plt.plot(time_vec, X_parallel[:, 1], label='Discrete pendulum angle')
 plt.xlabel('time (s)')
 plt.ylabel('angle (rad) / position (m)')
 plt.legend()
 plt.grid()
 # Second subplot
 plt.subplot(3, 1, 2)
-plt.plot(time_vec, U_sim, label='Control Input (Force)')
+#plt.plot(time_vec, U_sim, label='Control Input (Force)')
+plt.plot(time_vec, U_parallel, label='Discrete Integrator Force')
+if X_parallel.shape[1] >= 5:
+    plt.plot(time_vec, X_parallel[:, 4], label='actual input')
+if X_parallel.shape[1] >= 6:
+    plt.plot(time_vec, X_parallel[:, 5], label='past input')
 plt.grid()
 plt.xlabel('time (s)')
 plt.ylabel('force (N)')
 plt.legend()
 # Third subplot
 plt.subplot(3, 1, 3)
-plt.plot(time_vec, X_sim[:, 2], label='cart velocity')
-plt.plot(time_vec, X_sim[:, 3], label='pendulum velocity')
+plt.plot(time_vec, X_parallel[:, 2], label='cart velocity')
+plt.plot(time_vec, X_parallel[:, 3], label='pendulum velocity')
 plt.grid()
 plt.xlabel('time (s)')
 plt.ylabel('velocity (m/s, rad/s)')
 plt.legend()
+
+#plt.figure(figsize=(10, 6))
+#plt.plot(time_vec, X_sim[:, 1], label='Pendulum Angle')
+#plt.plot(time_vec, X_parallel[:, 1], label='Discrete Pendulum Angle')
+#plt.xlabel('time (s)')
+#plt.ylabel('angle (rad)')
+#plt.legend()
+#plt.grid()
+
+#plt.figure(figsize=(10,6))
+#plt.plot(time_vec, X_sim[:, 0]-X_parallel[:, 0], label='Difference between cart positions')
+#plt.plot(time_vec, X_sim[:, 1] - X_parallel[:, 1], label='Difference between pendulum angles')
+#plt.xlabel('time (s)')
+#plt.ylabel('position (m) / angle (rad)')
+#plt.grid()
+#plt.legend()
+plt.savefig("control_simulation.jpg")
 plt.show()
 
-visualize_inverted_pendulum(X_sim, U_sim, time_vec)
+# visualize_inverted_pendulum(X_sim, U_sim, time_vec)
+visualize_inverted_pendulum(X_parallel, U_parallel, time_vec)
 
 
 

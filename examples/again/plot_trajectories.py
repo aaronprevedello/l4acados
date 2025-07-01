@@ -113,6 +113,10 @@ plt.subplot(2, 2, 4)
 #for i in [4]:
 #    plt.plot(T, X[:, i], label=f"u_act")
 plt.plot(T, U, label = "u_des")
+if X.shape[1] >=5:
+    plt.plot(T, X[:, 4], label='u_act')
+if X.shape[1] >=6:
+    plt.plot(T, X[:, 5], label='u_past')
 plt.xlabel("Tempo [s]")
 plt.ylabel("Forza [N]")
 plt.title("Ingressi")
