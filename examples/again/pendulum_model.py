@@ -7,7 +7,7 @@ from scipy.linalg import block_diag
 from casadi import SX, vertcat, sin, cos
 from acados_template import AcadosModel
 
-def export_pendulum_ode_model_actuation(black_box = False) -> AcadosModel:
+def export_pendulum_ode_model_actuation(dT, black_box = False) -> AcadosModel:
     model_name = 'pendulum'
     ode_flag = 0 if black_box else 1
 
@@ -67,6 +67,16 @@ def export_pendulum_ode_model_actuation(black_box = False) -> AcadosModel:
     model.u = u
     model.p = p
     model.name = model_name
+
+    ode = Function('ode', [x, u, p], [f_expl])
+    # set up RK4
+    k1 = ode(x,        u, p)
+    k2 = ode(x+dT/2*k1,u, p)
+    k3 = ode(x+dT/2*k2,u, p)
+    k4 = ode(x+dT*k3,  u, p)
+    xf = x + dT/6 * (k1 + 2*k2 + 2*k3 + k4)
+
+    model.disc_dyn_expr = xf
 
     # Meta info
     model.x_labels = ['$x$ [m]', r'$\theta$ [rad]', '$v$ [m/s]', r'$\dot{\theta}$ [rad/s]']
@@ -130,6 +140,100 @@ def export_pendulum_ode_model() -> AcadosModel:
     model.u = u
     model.p = p
     model.name = model_name
+
+    # Meta info
+    model.x_labels = ['$x$ [m]', r'$\theta$ [rad]', '$v$ [m/s]', r'$\dot{\theta}$ [rad/s]']
+    model.u_labels = ['$F$']
+    model.t_label = '$t$ [s]'
+
+    return model
+
+def export_pendulum_ode_model_double_delay(dT, black_box=False) -> AcadosModel:
+    '''
+    Define model for the pendulum with both dynamic actuation delay, and constant input delay of one step
+    '''
+    model_name = 'pendulum'
+    ode_flag = 0 if black_box else 1
+
+    # constants
+    m_cart = 1.0   # mass of the cart [kg]
+    m = 0.1        # mass of the ball [kg]
+    g = 9.81       # gravity constant [m/s^2]
+
+    # pendulum length as parameter
+    l_param = SX.sym('l')  # symbolic parameter
+    tau     = SX.sym('tau')  # time constant for control input
+
+    # set up states & controls
+    x1      = SX.sym('x1')
+    theta   = SX.sym('theta')
+    v1      = SX.sym('v1')
+    dtheta  = SX.sym('dtheta')
+    u_act   = SX.sym('u_act')
+    u_past = SX.sym('u_past')
+
+    x_curr = vertcat(x1, theta, v1, dtheta, u_act)
+
+    x_full = vertcat(x_curr, u_past)
+
+    F = SX.sym('F')
+    u = vertcat(F)
+
+    # xdot
+    x1_dot     = SX.sym('x1_dot')
+    theta_dot  = SX.sym('theta_dot')
+    v1_dot     = SX.sym('v1_dot')
+    dtheta_dot = SX.sym('dtheta_dot')
+    u_act_dot  = SX.sym('u_act_dot')
+    u_past_dot = SX.sym('u_past_dot')
+
+    xdot = vertcat(x1_dot, theta_dot, v1_dot, dtheta_dot, u_act_dot, u_past_dot)
+
+    # parameters vector (only l for now)
+    p = vertcat(l_param, tau)
+
+    # dynamics
+    cos_theta = cos(theta)
+    sin_theta = sin(theta)
+    denominator = m_cart + m - m * cos_theta**2
+
+    f_expl = vertcat(
+        v1,
+        dtheta,
+        ode_flag*(-m * l_param * sin_theta * dtheta**2 + m * g * cos_theta * sin_theta + u_act) / denominator,
+        ode_flag*(-m * l_param * cos_theta * sin_theta * dtheta**2 + u_act * cos_theta + (m_cart + m) * g * sin_theta) / (l_param * denominator),
+        (1 / tau ) * (u_past - u_act),  # u_act is the previous control input
+        (u - u_past) / dT
+    )
+
+    cont_dynamics = vertcat(
+        v1,
+        dtheta,
+        ode_flag*(-m * l_param * sin_theta * dtheta**2 + m * g * cos_theta * sin_theta + u_act) / denominator,
+        ode_flag*(-m * l_param * cos_theta * sin_theta * dtheta**2 + u_act * cos_theta + (m_cart + m) * g * sin_theta) / (l_param * denominator),
+        (1 / tau ) * (u_past - u_act),  # u_act is the previous control input
+    )
+
+    f_impl = xdot - f_expl
+
+    model = AcadosModel()
+    model.f_impl_expr = f_impl
+    model.f_expl_expr = f_expl
+    model.x = x_full
+    model.xdot = xdot
+    model.u = u
+    model.p = p
+    model.name = model_name
+
+    ode = Function('ode', [x_curr, u, u_past, p], [cont_dynamics])
+    # set up RK4
+    k1 = ode(x_curr,        u, u_past, p)
+    k2 = ode(x_curr+dT/2*k1,u, u_past, p)
+    k3 = ode(x_curr+dT/2*k2,u, u_past, p)
+    k4 = ode(x_curr+dT*k3,  u, u_past, p)
+    xf = x_curr + dT/6 * (k1 + 2*k2 + 2*k3 + k4)
+
+    model.disc_dyn_expr = vertcat(xf, u)
 
     # Meta info
     model.x_labels = ['$x$ [m]', r'$\theta$ [rad]', '$v$ [m/s]', r'$\dot{\theta}$ [rad/s]']
@@ -220,9 +324,28 @@ def export_discrete_pendulum_ode_model(dT, black_box = False) -> AcadosModel:
     xf = x + dT/6 * (k1 + 2*k2 + 2*k3 + k4)
 
     model.disc_dyn_expr = xf
+
     # print("built RK4 for pendulum model with dT = ", dT)
     # print(xf)
     return model
+
+def export_discrete_integrator(model):
+
+    # Compute linearization matrices around (xbar, ubar)
+    A_sym = ca.jacobian(model.disc_dyn_expr, model.x)
+    B_sym = ca.jacobian(model.disc_dyn_expr, model.u)
+
+    A_fun = Function('A_fun', [model.x, model.u, model.p], [A_sym])
+    B_fun = Function('B_fun', [model.x, model.u, model.p], [B_sym])
+
+    x_next_lin = A_sym @ model.x + B_sym @ model.u
+
+    # CasADi function: takes (x, u, p), returns x_next
+    linearized_dynamics_fun = ca.Function('linear_dynamics_fun', [model.x, model.u, model.p], [x_next_lin])
+
+    discrete_dynamics_fun = ca.Function("discret_dyn_fun", [model.x, model.u, model.p], [model.disc_dyn_expr])
+
+    return linearized_dynamics_fun, discrete_dynamics_fun
 
 #def export_linearized_pendulum_ode_model_with_discrete_rk4(dT, xbar, ubar):
 #
@@ -340,8 +463,8 @@ def discrete_pendulum_ode_model_with_past_states_and_input_delay(dt, black_box=F
     )
 
     cont_dyn = vertcat(
-        ode_flag * x3,
-        ode_flag * x4,
+        x3,
+        x4,
         ode_flag * (-m * l * sin_theta * x4**2 + m * g * cos_theta * sin_theta + u_p2) / denominator,
         ode_flag * (-m * l * cos_theta * sin_theta * x4**2 + u_p2 * cos_theta + (m_cart + m) * g * sin_theta) / (l * denominator),  
     )
@@ -524,8 +647,8 @@ def export_ocp_cartpendulum(N, T, model, integrator_type, only_lower_bounds=Fals
     lb_u = -50.0
     ub_u = 50.0
 
-    Q = np.diagflat([10.0, 10.0, 0.1, 0.1])  # [cart, theta, cart_vel, omega]
-    R = np.array([[0.3]])                    # [u]
+    Q = np.diagflat([15.0, 10.0, 0.9, 0.1])  # [cart, theta, cart_vel, omega]
+    R = np.array([[0.5]])                    # [u]
     Qe = np.diagflat([10.0, 10.0, 0.1, 0.1])  # terminal cost
 
     # Definizione OCP

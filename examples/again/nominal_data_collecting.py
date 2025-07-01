@@ -50,10 +50,12 @@ from l4acados.models.pytorch_models.gpytorch_models.gpytorch_residual_model impo
     GPyTorchResidualModel,
 )
 
+gp_outputs = 2 # '2', '4' number of outputs of the GP model (p, theta, v, w)
+
 ref_type = 'swing_up' # 'swing_up', 'vertical', 'sin, 
-param_tau = 0.05
+param_tau = 0.4
 param_l_nom = 0.5
-param_l_real = 0.5
+param_l_real = 0.8
 
 ts_real = 0.025 # [s] real simulation integration step
 integration_steps_ratio = 1 # ratio between real integration step and mpc integration step
@@ -61,7 +63,7 @@ ts_mpc = integration_steps_ratio * ts_real # [s] mpc integration step
 time_horizon_mpc = 1.5 # [s] mpc time horizon
 n_steps_mpc_horizon = int(time_horizon_mpc / ts_mpc) # number of steps in the mpc prediction horizon
 
-simulation_time = 5 # [s] duration of the simulation
+simulation_time = 7.5 # [s] duration of the simulation
 sim_steps = int(simulation_time / ts_real) # number of steps in the simulation
 
 # Definition of Acados OCP Options
@@ -203,21 +205,22 @@ Y_gp_theta = Y_gp_theta.reshape(-1, 1)
 Y_gp_v = Y_gp_v.reshape(-1, 1)
 Y_gp_w = Y_gp_w.reshape(-1, 1)
 
-#print("X_gp shape is ", X_gp.shape)
-#print("X_sim shape is ", X_sim.shape)
-#print("Y_gp_p shape is ", Y_gp_p.shape)
-#print("Y_gp_theta shape is ", Y_gp_theta.shape)
-#print("Y_gp_v shape is ", Y_gp_v.shape)
-#print("Y_gp_w shape is ", Y_gp_w.shape)
-#print("U_sim shape is ", U_sim.shape)
-# Combine GP targets
-Y_gp_all = np.hstack([Y_gp_v, Y_gp_w])
-print("GP targets shape is ", Y_gp_all.shape)
+if gp_outputs == 2:
+    # Combine GP targets
+    Y_gp_all = np.hstack([Y_gp_v, Y_gp_w])
+    print("GP targets shape is ", Y_gp_all.shape)
+elif gp_outputs == 4:
+    # Combine GP targets
+    Y_gp_all = np.hstack([Y_gp_p, Y_gp_theta, Y_gp_v, Y_gp_w])
+    print("GP targets shape is ", Y_gp_all.shape)    
 
 # Save X_sim + targets
 filename_sim_targets = "X_sim_with_gp_targets.csv"
 X_sim_and_targets = np.hstack([X_sim[:-1], U_sim[:-1], Y_gp_all])
 print("GP input shape is ", X_sim[:-1].shape)
 np.savetxt(filename_sim_targets, X_sim_and_targets, delimiter=',', header='x1,x2,x3,x4,u,Y_v,Y_w', comments='')
+
+filename_npz = "nominal_no_actuation.npz"
+np.savez(filename_npz, X_sim=X_sim, U_sim=U_sim)
 
 print(f"Data saved in: \n{filename_sim_targets}")
