@@ -51,7 +51,7 @@ from l4acados.models.pytorch_models.gpytorch_models.gpytorch_residual_model impo
 )
 
 train_flag = False
-param_tau = 0.01    
+param_tau = 0.02    
 param_l_nom = 0.5
 param_l_real = 0.5
 
@@ -72,8 +72,27 @@ B_m = np.array([
     [0.0, 1.0]
 ])
 
+Q = np.diagflat([15.0, 10.0, 0.9, 0.1])  # [cart, theta, cart_vel, omega]
+R = np.array([[0.5]])                    # [u]
+Qe = 5*np.diagflat([10.0, 10.0, 0.1, 0.1])  # terminal cost
+
+setup_dict = {
+    "param_tau" : param_tau,
+    "param_l_nom" : param_l_nom,
+    "param_l_real" : param_l_real,
+    "ts_real" : ts_real,
+    "integration_steps_ratio" : integration_steps_ratio, 
+    "ts_mpc" : ts_mpc,
+    "time_horizon_mpc" : time_horizon_mpc,
+    "n_steps_mpc_horizon" : n_steps_mpc_horizon,
+    "B_m" : B_m,
+    "Q" : Q, 
+    "R" : R, 
+    "Qe" : Qe,    
+}
+
 # Nominal ocp model
-ocp = export_ocp_cartpendulum(n_steps_mpc_horizon, time_horizon_mpc, export_discrete_pendulum_ode_model(ts_mpc), "ERK")
+ocp = export_ocp_cartpendulum(n_steps_mpc_horizon, time_horizon_mpc, export_discrete_pendulum_ode_model(ts_mpc), "ERK", Q, R, Qe)
 ocp.parameter_values = np.array([param_l_nom])
 ocp_solver  = AcadosOcpSolver(ocp, json_file='acados_ocp.json')
 
@@ -148,17 +167,17 @@ x0 = np.array([0.0, np.pi, 0.0, 0.0])
 x_current = x0.copy()
 
 # Simulation setup
-sim = AcadosSim()
-sim.model = export_pendulum_ode_model_double_delay(ts_real)
-sim.parameter_values = np.array([param_l_real, param_tau])
-sim.solver_options.integrator_type = "ERK"
-sim.solver_options.T = ts_real # real simulation step
-
-sim_solver = AcadosSimSolver(sim, json_file = "acados_sim.json")
-
-#x0 = np.array([0, np.pi, 0, 0])
-#x_current = x0.copy()
-sim_solver.set("x", x0)
+#sim = AcadosSim()
+#sim.model = export_pendulum_ode_model_double_delay(ts_real)
+#sim.parameter_values = np.array([param_l_real, param_tau])
+#sim.solver_options.integrator_type = "ERK"
+#sim.solver_options.T = ts_real # real simulation step
+#
+#sim_solver = AcadosSimSolver(sim, json_file = "acados_sim.json")
+#
+##x0 = np.array([0, np.pi, 0, 0])
+##x_current = x0.copy()
+#sim_solver.set("x", x0)
 
 X_sim = [x0.copy()]
 U_sim = []
@@ -171,6 +190,7 @@ lin_disc_dyn_bar, f_disc_dyn_bar = export_discrete_integrator(export_pendulum_od
 x0_actuation_dyn = np.array([0.0, np.pi, 0.0, 0.0, 0.0, 0.0])
 X_parallel = [x0_actuation_dyn.copy()]
 U_parallel = []
+#print("DIscrete dynamics function: ", f_disc_dyn_bar)
 
 #for i in range(sim_steps):
 #
@@ -267,10 +287,12 @@ for i in range(sim_steps):
     # Save data in the directory
     np.savez(os.path.join(save_dir, f"step_{i:03d}.npz"), **data_dict)
 
+    #input("Press any key to continue... ")
+
 X_parallel = np.array(X_parallel[:-1])
 U_parallel = np.array(U_parallel)
 
-np.savez("control_simulation.npz", X_sim=X_sim, U_sim=U_sim)
+np.savez("control_simulation.npz", X_sim=X_sim, U_sim=U_sim, setup_dict=setup_dict)
 
 # Plot trajectories
 # Time vector of the simulation for plotting
@@ -279,7 +301,7 @@ time_vec = np.linspace(0, simulation_time, sim_steps)
 plt.figure(figsize=(10, 6))
 # First subplot
 plt.subplot(3, 1, 1)
-#plt.plot(time_vec, X_sim[:, 0], label='Cart Position')
+#plt.plot(time_vec, X_sim[:, 0], label='Cart Position') 
 #plt.plot(time_vec, X_sim[:, 1], label='Pendulum Angle')
 plt.plot(time_vec, X_parallel[:, 0], label='Discrete cart position')
 plt.plot(time_vec, X_parallel[:, 1], label='Discrete pendulum angle')
