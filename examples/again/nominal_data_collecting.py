@@ -52,7 +52,6 @@ from l4acados.models.pytorch_models.gpytorch_models.gpytorch_residual_model impo
 
 gp_outputs = 2 # '2', '4' number of outputs of the GP model (p, theta, v, w)
 
-ref_type = 'swing_up' # 'swing_up', 'vertical', 'sin, 
 param_tau = 0.4
 param_l_nom = 0.5
 param_l_real = 0.8
@@ -66,6 +65,24 @@ n_steps_mpc_horizon = int(time_horizon_mpc / ts_mpc) # number of steps in the mp
 simulation_time = 7.5 # [s] duration of the simulation
 sim_steps = int(simulation_time / ts_real) # number of steps in the simulation
 
+Q = np.diagflat([15.0, 10.0, 0.9, 0.1])  # [cart, theta, cart_vel, omega]
+R = np.array([[0.5]])                    # [u]
+Qe = 5*np.diagflat([10.0, 10.0, 0.1, 0.1])  # terminal cost
+
+setup_dict = {
+    "param_tau" : param_tau,
+    "param_l_nom" : param_l_nom,
+    "param_l_real" : param_l_real,
+    "ts_real" : ts_real,
+    "integration_steps_ratio" : integration_steps_ratio, 
+    "ts_mpc" : ts_mpc,
+    "time_horizon_mpc" : time_horizon_mpc,
+    "n_steps_mpc_horizon" : n_steps_mpc_horizon,
+    "Q" : Q, 
+    "R" : R, 
+    "Qe" : Qe,    
+}
+
 # Definition of Acados OCP Options
 #ocp_options = AcadosOcpOptions()
 #ocp_options.N_horizon = n_steps_mpc_horizon
@@ -74,10 +91,10 @@ sim_steps = int(simulation_time / ts_real) # number of steps in the simulation
 #ocp_options.gloalization = '' # 'FIXED_STEP', 'MERIT_BACKTRACKING'
 #ocp_options.tol
 
-real_model = export_pendulum_ode_model() # standard model
-ctrl_model = export_pendulum_ode_model()
+real_model = export_pendulum_ode_model(ts_real) # standard model
+ctrl_model = export_pendulum_ode_model(ts_mpc)
 
-ocp = export_ocp_cartpendulum(N=n_steps_mpc_horizon, T=time_horizon_mpc, model=ctrl_model, integrator_type = 'ERK')
+ocp = export_ocp_cartpendulum(N=n_steps_mpc_horizon, T=time_horizon_mpc, model=ctrl_model, integrator_type = 'ERK', Q=Q, R=R, Qe=Qe)
 ocp.parameter_values = np.array([param_l_nom])
 #ocp.solver_options = ocp_options
 ocp_solver = AcadosOcpSolver(ocp, json_file='acados_ocp.json')
@@ -108,6 +125,10 @@ print(f"Length of the total simulation is {simulation_time} [s]")
 print(f"Number of simulation steps is {sim_steps}")
 
 u0 = np.zeros((1,))
+
+# Definition of the manual discrete integrator
+lin_disc_dyn_bar, f_disc_dyn_bar = export_discrete_integrator(export_pendulum_ode_model(ts_real))
+
 
 print("Starting simuation...")
 for i in range(sim_steps):
@@ -140,16 +161,19 @@ for i in range(sim_steps):
     next_pred_state.append(pred_state.copy())
 
     # Simulate the ystem with the optimal control input
-    sim_solver.set("x", x_current)
-    print("Just set x_current in the simulation solver: ", x_current)
-    sim_solver.set("u", u0)
-    sim_solver.solve()
+    #sim_solver.set("x", x_current)
+    #print("Just set x_current in the simulation solver: ", x_current)
+    #sim_solver.set("u", u0)
+    #sim_solver.solve()
+    # Get the next state of the simulation
+    #x_next = sim_solver.get("x")
 
-    # Get tje next state of the simulation
-    x_next = sim_solver.get("x")
-    print("x_next from real simulation: ", x_next)
+    # Discrete manual integrator 
+    x_next = f_disc_dyn_bar(x_current, u0, np.array([param_l_real])).full().flatten()
     #Update x_current
     x_current = x_next.copy()
+
+    print("x_next from real simulation: ", x_next)    
 
     # Store the states and inputs of the simulation
     print("x_current shape is ", x_current.shape)
