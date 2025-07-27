@@ -1,0 +1,114 @@
+import sys, os, time
+
+sys.path += ["../../external/"]
+
+import matplotlib.pyplot as plt
+import torch
+import gpytorch
+import copy
+
+from sklearn.cluster import KMeans
+from pendulum_model import *
+from utils import *
+
+# gpytorch_utils
+from gpytorch_utils.gp_hyperparam_training import (
+    generate_train_inputs_acados,
+    generate_train_outputs_at_inputs,
+
+)
+
+from gpytorch import likelihoods
+from l4acados.models.pytorch_models.gpytorch_models.gpytorch_gp import (
+    BatchIndependentMultitaskGPModel,
+    BatchIndependentInducingPointGpModel
+)
+
+
+dataset_path = "nominal.csv" # Path to the dataset file
+n_gp_outputs = 2 # Number of outputs of the GP model 
+# Load the training data from the CSV file
+train_inputs, train_outputs = load_gp_data_from_csv(dataset_path, n_gp_outputs)
+
+#permuted_indices = torch.randperm(train_inputs.size(0))
+#train_dim = int(0.70*train_inputs.size(0))
+#x_train = train_inputs[permuted_indices[:train_dim], :]
+#y_train = train_outputs[permuted_indices[:train_dim], :]
+#x_val = train_inputs[permuted_indices[train_dim:], :]
+#y_val = train_outputs[permuted_indices[train_dim:], :]
+#
+print(f"x_train: {train_inputs.shape}, y_train: {train_outputs.shape}")
+#print(f"x_val: {x_val.shape}, y_val: {y_val.shape}")
+
+#kmeans = KMeans(n_clusters = 1000)
+#kmeans.fit(train_inputs.numpy())
+#_, indices = np.unique(kmeans.labels_, return_index=True)
+#x_train = train_inputs[indices,:]
+#y_train = train_outputs[indices,:]
+#print(f"x_train: {x_train.shape}, y_train: {y_train.shape}")
+##x_inducing_points = torch.tensor(kmeans.cluster_centers_, dtype = torch.float32)
+##train_inputs = torch.tensor(train_inputs, dtype=torch.float32) 
+##train_outputs = torch.tensor(train_outputs, dtype = torch.float32)
+#train_x_y = np.hstack([x_train, y_train])
+#np.savetxt("train_set.csv", train_x_y, delimiter=',', header='x1,x2,x3,x4,u,Y_p,Y_theta,Y_v,Y_w')
+
+# Define the likelihood for the GP model
+likelihood = gpytorch.likelihoods.MultitaskGaussianLikelihood(num_tasks = n_gp_outputs)
+
+# Define the GP model
+gp_model = BatchIndependentMultitaskGPModel(
+    train_x = train_inputs,
+    train_y = train_outputs,
+    input_dimension=train_inputs.shape[1], # 4 + 1 = 5
+    residual_dimension=n_gp_outputs,
+    likelihood=likelihood,
+    use_ard=True,    # 
+    #inducing_points = 100,
+)
+
+# Train the GP model on the data  
+gp_model.train()
+likelihood.train()
+print("Training the GP model...")
+gp_model, likelihood = train_gp_model(
+    gp_model, training_iterations=1500, learning_rate=0.01)#, torch_seed=42) 
+print("GP model trained successfully")
+save_path = "gp_model.pth" # save path for the trained GP model
+# Save state dicts and training data (optional if not used later)
+torch.save({
+    'model_state_dict': gp_model.state_dict(),
+    'likelihood_state_dict': likelihood.state_dict(),
+    'train_x': gp_model.train_inputs[0],  # if needed
+    'train_y': gp_model.train_targets,    # if needed
+}, save_path)
+
+# Plot the GP model fit on training data
+plot_gp_fit_on_training_data(
+    train_inputs,
+    train_outputs,
+    gp_model,
+    likelihood,
+)
+
+print("likelihood noise is ", likelihood.noise.item())
+
+print("End of training, now printing model parameters ")
+
+#state_dict = gp_model.state_dict()
+#for name, param in state_dict.items():
+#    print(name, param.shape, param)
+
+for name, param in gp_model.named_parameters():
+    print(name, param.shape, param)
+    print("--------------")
+
+print("Task noises:", likelihood.task_noises.detach())
+print("Global noise:", likelihood.noise.detach())
+print("Outputscales:", gp_model.covar_module.outputscale.detach())
+print("Lengthscales:", gp_model.covar_module.base_kernel.lengthscale.detach())
+
+
+#test_in, test_out = load_gp_data_from_csv("nominal_lb-matmpc.csv", n_gp_outputs)
+#plot_gp_fit_on_training_data(test_in, test_out, gp_model, likelihood)
+
+print("GP MODEL SAVED IN: ", save_path)
